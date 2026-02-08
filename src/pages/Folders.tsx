@@ -306,16 +306,40 @@ const Folders: React.FC = () => {
                                 </div>
                                 <div className="grid grid-cols-4 items-center gap-4">
                                     <Label htmlFor="color" className="text-right text-slate-300">Color</Label>
-                                    <div className="col-span-3 flex gap-2 flex-wrap">
-                                        {DEFAULT_COLORS.map((c) => (
-                                            <button
-                                                key={c}
-                                                type="button"
-                                                onClick={() => setColor(c)}
-                                                className={`w-8 h-8 rounded-full border-2 ${color === c ? 'border-white' : 'border-transparent'}`}
-                                                style={{ backgroundColor: c }}
-                                            />
-                                        ))}
+                                    <div className="col-span-3 space-y-3">
+                                        {/* Preset Colors */}
+                                        <div className="flex gap-2 flex-wrap">
+                                            {DEFAULT_COLORS.map((c) => (
+                                                <button
+                                                    key={c}
+                                                    type="button"
+                                                    onClick={() => setColor(c)}
+                                                    className={`w-8 h-8 rounded-full border-2 transition-all ${color === c ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`}
+                                                    style={{ backgroundColor: c }}
+                                                    title={c}
+                                                />
+                                            ))}
+                                        </div>
+                                        {/* Custom Color Picker */}
+                                        <div className="flex items-center gap-2">
+                                            <Label htmlFor="custom-color" className="text-slate-400 text-sm">Custom:</Label>
+                                            <div className="flex items-center gap-2 flex-1">
+                                                <input
+                                                    id="custom-color"
+                                                    type="color"
+                                                    value={color}
+                                                    onChange={(e) => setColor(e.target.value)}
+                                                    className="h-10 w-16 rounded border-2 border-slate-700 bg-[#1e293b] cursor-pointer"
+                                                />
+                                                <Input
+                                                    type="text"
+                                                    value={color}
+                                                    onChange={(e) => setColor(e.target.value)}
+                                                    placeholder="#FF6B6B"
+                                                    className="flex-1 bg-[#1e293b] border-slate-700 text-white font-mono text-sm"
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-4 items-center gap-4">
@@ -391,6 +415,7 @@ const Folders: React.FC = () => {
                                 <TableHead className="text-slate-300">Name</TableHead>
                                 <TableHead className="text-slate-300">Parent Cabinet</TableHead>
                                 <TableHead className="text-slate-300">Code</TableHead>
+                                <TableHead className="text-slate-300">Color</TableHead>
                                 <TableHead className="text-slate-300">Contents</TableHead>
                                 <TableHead className="text-right text-slate-300">Actions</TableHead>
                             </TableRow>
@@ -398,7 +423,7 @@ const Folders: React.FC = () => {
                         <TableBody>
                             {filteredFolders.length === 0 ? (
                                 <TableRow className="border-slate-800">
-                                    <TableCell colSpan={6} className="h-24 text-center text-slate-500">
+                                    <TableCell colSpan={7} className="h-24 text-center text-slate-500">
                                         No folders found. Add your first folder.
                                     </TableCell>
                                 </TableRow>
@@ -433,6 +458,17 @@ const Folders: React.FC = () => {
                                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
                                                 {folder.code}
                                             </span>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2">
+                                                <div
+                                                    className="h-6 w-12 rounded border-2 border-white/20"
+                                                    style={{ backgroundColor: folder.color || '#3b82f6' }}
+                                                />
+                                                <span className="text-xs text-slate-400 font-mono">
+                                                    {folder.color || '#3b82f6'}
+                                                </span>
+                                            </div>
                                         </TableCell>
                                         <TableCell className="text-slate-300">
                                             {getFolderStats(folder.id).files} files
@@ -550,16 +586,40 @@ const Folders: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="edit-color" className="text-right text-slate-300">Color</Label>
-                            <div className="col-span-3 flex gap-2 flex-wrap">
-                                {DEFAULT_COLORS.map((c) => (
-                                    <button
-                                        key={c}
-                                        type="button"
-                                        onClick={() => setColor(c)}
-                                        className={`w-8 h-8 rounded-full border-2 ${color === c ? 'border-white' : 'border-transparent'}`}
-                                        style={{ backgroundColor: c }}
-                                    />
-                                ))}
+                            <div className="col-span-3 space-y-3">
+                                {/* Preset Colors */}
+                                <div className="flex gap-2 flex-wrap">
+                                    {DEFAULT_COLORS.map((c) => (
+                                        <button
+                                            key={c}
+                                            type="button"
+                                            onClick={() => setColor(c)}
+                                            className={`w-8 h-8 rounded-full border-2 transition-all ${color === c ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`}
+                                            style={{ backgroundColor: c }}
+                                            title={c}
+                                        />
+                                    ))}
+                                </div>
+                                {/* Custom Color Picker */}
+                                <div className="flex items-center gap-2">
+                                    <Label htmlFor="edit-custom-color" className="text-slate-400 text-sm">Custom:</Label>
+                                    <div className="flex items-center gap-2 flex-1">
+                                        <input
+                                            id="edit-custom-color"
+                                            type="color"
+                                            value={color}
+                                            onChange={(e) => setColor(e.target.value)}
+                                            className="h-10 w-16 rounded border-2 border-slate-700 bg-[#1e293b] cursor-pointer"
+                                        />
+                                        <Input
+                                            type="text"
+                                            value={color}
+                                            onChange={(e) => setColor(e.target.value)}
+                                            placeholder="#FF6B6B"
+                                            className="flex-1 bg-[#1e293b] border-slate-700 text-white font-mono text-sm"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">

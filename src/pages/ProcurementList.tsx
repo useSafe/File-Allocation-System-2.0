@@ -292,6 +292,17 @@ const ProcurementList: React.FC = () => {
         }
     }, [folderIdFromUrl, folders, shelves]);
 
+    // Read search parameter from URL and populate search box
+    useEffect(() => {
+        const searchFromUrl = searchParams.get('search');
+        if (searchFromUrl) {
+            setFilters(prev => ({
+                ...prev,
+                search: searchFromUrl
+            }));
+        }
+    }, [searchParams]);
+
     // Update edit form cascading dropdowns
     useEffect(() => {
         if (editingProcurement && editingProcurement.cabinetId) {

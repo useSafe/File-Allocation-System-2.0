@@ -25,6 +25,7 @@ const Dashboard: React.FC = () => {
   const [folders, setFolders] = useState<Folder[]>([]); // Folders (Tier 3)
   const [isInitializing, setIsInitializing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     const unsubProcurements = onProcurementsChange(setProcurements);
@@ -94,6 +95,18 @@ const Dashboard: React.FC = () => {
   const recentProcurements = [...(procurements || [])]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
+
+  // Filtered suggestions for autocomplete (up to 5 matching PR numbers)
+  const filteredSuggestions = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+
+    return procurements
+      .filter(p =>
+        p.prNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.description.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .slice(0, 5);
+  }, [searchQuery, procurements]);
 
   const chartConfig = {
     active: { label: 'Borrowed', color: '#f59e0b' },
@@ -248,18 +261,56 @@ const Dashboard: React.FC = () => {
           <div className="flex flex-col gap-4">
             {/* Search Bar */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 z-10" />
               <Input
                 placeholder="Search by PR Number..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => {
+                  // Delay to allow click on suggestion
+                  setTimeout(() => setShowSuggestions(false), 200);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
                     navigate(`/procurement/list?search=${encodeURIComponent(searchQuery.trim())}`);
+                    setShowSuggestions(false);
+                  } else if (e.key === 'Escape') {
+                    setShowSuggestions(false);
                   }
                 }}
                 className="pl-10 bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
               />
+
+              {/* Autocomplete Suggestions Dropdown */}
+              {showSuggestions && filteredSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-[#1e293b] border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                  {filteredSuggestions.map((proc, index) => (
+                    <button
+                      key={proc.id}
+                      onClick={() => {
+                        setSearchQuery(proc.prNumber);
+                        setShowSuggestions(false);
+                        navigate(`/procurement/list?search=${encodeURIComponent(proc.prNumber)}`);
+                      }}
+                      className="w-full px-4 py-3 text-left hover:bg-slate-700 transition-colors border-b border-slate-700 last:border-b-0 flex items-start gap-3"
+                    >
+                      <FileText className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white truncate">
+                          {proc.prNumber}
+                        </div>
+                        <div className="text-xs text-slate-400 truncate mt-0.5">
+                          {proc.description}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}
