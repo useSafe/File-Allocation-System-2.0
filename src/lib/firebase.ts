@@ -8,14 +8,14 @@ import { getDatabase } from "firebase/database";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-    apiKey: "AIzaSyD0hBWo7aPiE1mo8De-EBJ5tjpE3UdUvFY",
-    authDomain: "procurewise-9e599.firebaseapp.com",
-    databaseURL: "https://procurewise-9e599-default-rtdb.firebaseio.com",
-    projectId: "procurewise-9e599",
-    storageBucket: "procurewise-9e599.firebasestorage.app",
-    messagingSenderId: "153747280861",
-    appId: "1:153747280861:web:a22c17181063ae152c5c34",
-    measurementId: "G-E7PTNF6H1J"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
