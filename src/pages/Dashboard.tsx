@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { onProcurementsChange, onCabinetsChange, onShelvesChange, onFoldersChange } from '@/lib/storage';
 import { initializeDummyData } from '@/lib/initDummyData';
 import { Procurement, Cabinet, Shelf, Folder } from '@/types/procurement';
-import { FileText, Archive, Layers, Package, FolderOpen, Clock, TrendingUp, Database, Download } from 'lucide-react';
+import { FileText, Archive, Layers, Package, FolderOpen, Clock, TrendingUp, Database, Download, Search, Plus, Eye, Map as MapIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ChartContainer,
@@ -16,11 +18,13 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [procurements, setProcurements] = useState<Procurement[]>([]);
   const [cabinets, setCabinets] = useState<Cabinet[]>([]); // Shelves (Tier 1)
   const [shelves, setShelves] = useState<Shelf[]>([]); // Cabinets (Tier 2)
   const [folders, setFolders] = useState<Folder[]>([]); // Folders (Tier 3)
   const [isInitializing, setIsInitializing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const unsubProcurements = onProcurementsChange(setProcurements);
@@ -234,6 +238,68 @@ const Dashboard: React.FC = () => {
           </Button> */}
         </div>
       </div>
+
+      {/* Quick Actions */}
+      <Card className="border-none bg-[#0f172a] text-white shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-lg">Quick Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-4">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Search by PR Number..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    navigate(`/procurement/list?search=${encodeURIComponent(searchQuery.trim())}`);
+                  }
+                }}
+                className="pl-10 bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Button
+                onClick={() => navigate('/procurement/add')}
+                className="bg-blue-600 hover:bg-blue-700 justify-start h-auto py-3"
+              >
+                <Plus className="mr-2 h-5 w-5" />
+                <div className="text-left">
+                  <div className="font-semibold">Add Procurement</div>
+                  <div className="text-xs opacity-80">Create new record</div>
+                </div>
+              </Button>
+
+              <Button
+                onClick={() => navigate('/procurement/list')}
+                className="bg-emerald-600 hover:bg-emerald-700 justify-start h-auto py-3"
+              >
+                <Eye className="mr-2 h-5 w-5" />
+                <div className="text-left">
+                  <div className="font-semibold">View Records</div>
+                  <div className="text-xs opacity-80">Browse all files</div>
+                </div>
+              </Button>
+
+              <Button
+                onClick={() => navigate('/visual-allocation')}
+                className="bg-purple-600 hover:bg-purple-700 justify-start h-auto py-3"
+              >
+                <MapIcon className="mr-2 h-5 w-5" />
+                <div className="text-left">
+                  <div className="font-semibold">Visual Allocation</div>
+                  <div className="text-xs opacity-80">Map view</div>
+                </div>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div id="dashboard-content" className="space-y-6">
 

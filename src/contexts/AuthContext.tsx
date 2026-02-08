@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthState } from '@/types/procurement';
-import { getStoredUser, setStoredUser, ensureAdminUser } from '@/lib/storage'; // Added ensureAdminUser
+import { getStoredUser, setStoredUser, ensureAdminUser } from '@/lib/storage';
 import { db } from '@/lib/firebase';
 import { ref, get } from 'firebase/database';
 
@@ -82,6 +82,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             // Login success
             setUser(foundUser);
             setStoredUser(foundUser);
+
             return { success: true };
           }
 

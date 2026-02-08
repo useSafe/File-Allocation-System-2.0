@@ -15,6 +15,11 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   LayoutDashboard,
   FolderPlus,
   FilePlus,
@@ -24,6 +29,10 @@ import {
   Package,
   Layers,
   Users,
+  FolderOpen,
+  ChevronDown,
+  ChevronRight,
+  Map,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,15 +41,29 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-// Define items with optional adminOnly flag (extending the object structure implicitly)
-const navItems = [
+interface NavItem {
+  path?: string;
+  label: string;
+  icon: any;
+  adminOnly?: boolean;
+  children?: NavItem[];
+}
+
+// Define items with optional adminOnly flag and nested children
+const navItems: NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/shelves', label: 'Shelves', icon: Layers },
-  { path: '/cabinets', label: 'Cabinets', icon: Package },
-  { path: '/folders', label: 'Folders', icon: FolderPlus },
-  { path: '/visual-allocation', label: 'Visual Map', icon: LayoutDashboard },
+  {
+    label: 'Storages',
+    icon: Package,
+    children: [
+      { path: '/shelves', label: 'Shelves', icon: Layers },
+      { path: '/cabinets', label: 'Cabinets', icon: Package },
+      { path: '/folders', label: 'Folders', icon: FolderOpen },
+    ],
+  },
   { path: '/procurement/add', label: 'Add Procurement', icon: FilePlus },
   { path: '/procurement/list', label: 'Records', icon: FileText },
+  { path: '/visual-allocation', label: 'Visual Map', icon: Map },
   { path: '/users', label: 'User Management', icon: Users, adminOnly: true },
 ];
 
@@ -49,10 +72,106 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openDropdowns, setOpenDropdowns] = useState<string[]>(['Storages']); // Default open
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const toggleDropdown = (label: string) => {
+    setOpenDropdowns(prev =>
+      prev.includes(label)
+        ? prev.filter(item => item !== label)
+        : [...prev, label]
+    );
+  };
+
+  const renderNavItem = (item: NavItem) => {
+    // Skip admin-only items for non-admin users
+    if (item.adminOnly && user?.role !== 'admin') {
+      return null;
+    }
+
+    const Icon = item.icon;
+
+    // If item has children, render as collapsible
+    if (item.children) {
+      const isOpen = openDropdowns.includes(item.label);
+      const hasActiveChild = item.children.some(child => child.path === location.pathname);
+
+      return (
+        <Collapsible
+          key={item.label}
+          open={isOpen}
+          onOpenChange={() => toggleDropdown(item.label)}
+        >
+          <CollapsibleTrigger asChild>
+            <button
+              className={cn(
+                'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                hasActiveChild
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-white'
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <Icon className="h-5 w-5" />
+                {item.label}
+              </div>
+              {isOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pl-6 space-y-1 mt-1">
+            {item.children.map(child => {
+              const ChildIcon = child.icon;
+              const isActive = location.pathname === child.path;
+
+              return (
+                <Link
+                  key={child.path}
+                  to={child.path!}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground hover:text-white'
+                      : 'text-muted-foreground hover:bg-accent hover:text-white'
+                  )}
+                >
+                  <ChildIcon className="h-4 w-4" />
+                  {child.label}
+                </Link>
+              );
+            })}
+          </CollapsibleContent>
+        </Collapsible>
+      );
+    }
+
+    // Regular nav item
+    const isActive = location.pathname === item.path;
+
+    return (
+      <Link
+        key={item.path}
+        to={item.path!}
+        onClick={() => setMobileOpen(false)}
+        className={cn(
+          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors relative',
+          isActive
+            ? 'bg-primary text-primary-foreground hover:text-white'
+            : 'text-muted-foreground hover:bg-accent hover:text-white'
+        )}
+      >
+        <Icon className="h-5 w-5" />
+        {item.label}
+      </Link>
+    );
   };
 
   const NavContent = () => (
@@ -63,29 +182,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       </div>
 
       <nav className="flex-1 space-y-1 p-4">
-        {navItems
-          .filter(item => !item.adminOnly || user?.role === 'admin')
-          .map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.path;
-
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors relative',
-                  isActive
-                    ? 'bg-primary text-primary-foreground hover:text-white'
-                    : 'text-muted-foreground hover:bg-accent hover:text-white'
-                )}
-              >
-                <Icon className="h-5 w-5" />
-                {item.label}
-              </Link>
-            );
-          })}
+        {navItems.map(item => renderNavItem(item))}
       </nav>
 
       <div className="border-t border-border p-4">

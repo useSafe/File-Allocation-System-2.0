@@ -239,14 +239,15 @@ const UserManagement: React.FC = () => {
 
             <Card className="bg-[#0f172a] border-slate-800">
                 <CardHeader className="pb-4">
-                    <div className="flex gap-4 flex-wrap">
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                    <CardTitle className="text-white">Users</CardTitle>
+                    <div className="flex gap-2 mt-4">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input
                                 placeholder="Search users..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="pl-9 bg-[#1e293b] border-slate-700 text-white"
+                                className="pl-10 bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
                             />
                         </div>
                         <Select value={roleFilter} onValueChange={(v: any) => setRoleFilter(v)}>
@@ -373,91 +374,92 @@ const UserManagement: React.FC = () => {
                     </Button>
                 </div>
             </div>
-
-            {/* Add User Modal */}
-            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-                <DialogContent className="bg-[#1e293b] border-slate-800 text-white">
-                    <DialogHeader>
-                        <DialogTitle>Add New User</DialogTitle>
-                        <DialogDescription className="text-slate-400">
-                            Email must be @gmail.com. Password needs 8 chars, 1 uppercase, 1 number, 1 special char.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="name" className="text-right">Name</Label>
-                            <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="email" className="text-right">Email</Label>
-                            <Input id="email" type="email" placeholder="user@gmail.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="password" className="text-right">Password</Label>
-                            <Input id="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Role</Label>
-                            <Select value={formData.role} onValueChange={(v: 'admin' | 'user') => setFormData({ ...formData, role: v })}>
-                                <SelectTrigger className="col-span-3 bg-[#0f172a] border-slate-700">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="bg-[#0f172a] border-slate-700 text-white">
-                                    <SelectItem value="user">User</SelectItem>
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddOpen(false)} className="border-slate-700 text-white hover:bg-slate-800">Cancel</Button>
-                        <Button onClick={handleAddUser} className="bg-blue-600 hover:bg-blue-700">Create User</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Edit User Modal */}
-            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent className="bg-[#1e293b] border-slate-800 text-white">
-                    <DialogHeader>
-                        <DialogTitle>Edit User</DialogTitle>
-                        <DialogDescription className="text-slate-400">
-                            Email must be @gmail.com. Password needs 8 chars, 1 uppercase, 1 number, 1 special char.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-name" className="text-right">Name</Label>
-                            <Input id="edit-name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-email" className="text-right">Email</Label>
-                            <Input id="edit-email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-password" className="text-right">Password</Label>
-                            <Input id="edit-password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Role</Label>
-                            <Select value={formData.role} onValueChange={(v: 'admin' | 'user') => setFormData({ ...formData, role: v })}>
-                                <SelectTrigger className="col-span-3 bg-[#0f172a] border-slate-700">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="bg-[#0f172a] border-slate-700 text-white">
-                                    <SelectItem value="user">User</SelectItem>
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditOpen(false)} className="border-slate-700 text-white hover:bg-slate-800">Cancel</Button>
-                        <Button onClick={handleEditUser} className="bg-blue-600 hover:bg-blue-700">Save Changes</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
+
+            {/* Add User Modal */ }
+    <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent className="bg-[#1e293b] border-slate-800 text-white">
+            <DialogHeader>
+                <DialogTitle>Add New User</DialogTitle>
+                <DialogDescription className="text-slate-400">
+                    Email must be @gmail.com. Password needs 8 chars, 1 uppercase, 1 number, 1 special char.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">Name</Label>
+                    <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="email" className="text-right">Email</Label>
+                    <Input id="email" type="email" placeholder="user@gmail.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="password" className="text-right">Password</Label>
+                    <Input id="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">Role</Label>
+                    <Select value={formData.role} onValueChange={(v: 'admin' | 'user') => setFormData({ ...formData, role: v })}>
+                        <SelectTrigger className="col-span-3 bg-[#0f172a] border-slate-700">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#0f172a] border-slate-700 text-white">
+                            <SelectItem value="user">User</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddOpen(false)} className="border-slate-700 text-white hover:bg-slate-800">Cancel</Button>
+                <Button onClick={handleAddUser} className="bg-blue-600 hover:bg-blue-700">Create User</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+
+    {/* Edit User Modal */ }
+    <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="bg-[#1e293b] border-slate-800 text-white">
+            <DialogHeader>
+                <DialogTitle>Edit User</DialogTitle>
+                <DialogDescription className="text-slate-400">
+                    Email must be @gmail.com. Password needs 8 chars, 1 uppercase, 1 number, 1 special char.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-name" className="text-right">Name</Label>
+                    <Input id="edit-name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-email" className="text-right">Email</Label>
+                    <Input id="edit-email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-password" className="text-right">Password</Label>
+                    <Input id="edit-password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="col-span-3 bg-[#0f172a] border-slate-700" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">Role</Label>
+                    <Select value={formData.role} onValueChange={(v: 'admin' | 'user') => setFormData({ ...formData, role: v })}>
+                        <SelectTrigger className="col-span-3 bg-[#0f172a] border-slate-700">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#0f172a] border-slate-700 text-white">
+                            <SelectItem value="user">User</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditOpen(false)} className="border-slate-700 text-white hover:bg-slate-800">Cancel</Button>
+                <Button onClick={handleEditUser} className="bg-blue-600 hover:bg-blue-700">Save Changes</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+        </div >
     );
 };
 

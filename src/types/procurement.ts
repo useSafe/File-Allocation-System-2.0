@@ -116,4 +116,3 @@ export interface LocationPath {
     folder: Folder;
     fullPath: string; // e.g., "C1-S2-F14"
 }
-
