@@ -376,7 +376,7 @@ const UserManagement: React.FC = () => {
             </div>
         </div>
 
-            {/* Add User Modal */ }
+        {/* Add User Modal */ }
     <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent className="bg-[#1e293b] border-slate-800 text-white">
             <DialogHeader>
@@ -459,7 +459,7 @@ const UserManagement: React.FC = () => {
             </DialogFooter>
         </DialogContent>
     </Dialog>
-        </div >
+    </div >
     );
 };
 
