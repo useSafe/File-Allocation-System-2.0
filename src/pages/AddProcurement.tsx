@@ -42,10 +42,10 @@ const AddProcurement: React.FC = () => {
     const [cabinetId, setCabinetId] = useState('');
     const [shelfId, setShelfId] = useState('');
     const [folderId, setFolderId] = useState('');
-    const [status, setStatus] = useState<ProcurementStatus>('archived'); // Changed default to 'archived'
+    const [status, setStatus] = useState<ProcurementStatus>('archived');
     const [date, setDate] = useState<Date | undefined>(new Date());
 
-    // Update available shelves when cabinet changes
+    // Update available shelves (Tier 2 - Cabinets) when cabinet (Tier 1 - Shelf) changes
     useEffect(() => {
         if (cabinetId) {
             setAvailableShelves(shelves.filter(s => s.cabinetId === cabinetId));
@@ -56,7 +56,7 @@ const AddProcurement: React.FC = () => {
         }
     }, [cabinetId, shelves]);
 
-    // Update available folders when shelf changes
+    // Update available folders (Tier 3) when shelf (Tier 2 - Cabinet) changes
     useEffect(() => {
         if (shelfId) {
             setAvailableFolders(folders.filter(f => f.shelfId === shelfId));
@@ -117,39 +117,6 @@ const AddProcurement: React.FC = () => {
         }
     };
 
-    // Format PR Number: DIV-MMM-YY-NNN (e.g., DIV-JAN-26-001)
-    const handlePRNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        let value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
-
-        // Remove existing hyphens for raw processing
-        const rawValue = value.replace(/-/g, '');
-        let formattedValue = '';
-
-        // DIV (3 chars)
-        if (rawValue.length > 0) {
-            formattedValue = rawValue.substring(0, 3);
-        }
-        // MMM (3 chars for month)
-        if (rawValue.length > 3) {
-            formattedValue += '-' + rawValue.substring(3, 6);
-        }
-        // YY (2 chars for year)
-        if (rawValue.length > 6) {
-            formattedValue += '-' + rawValue.substring(6, 8);
-        }
-        // NNN (3 chars for number)
-        if (rawValue.length > 8) {
-            formattedValue += '-' + rawValue.substring(8, 11);
-        }
-
-        // Limit length (14 chars: 3+1+3+1+2+1+3)
-        if (formattedValue.length > 14) {
-            formattedValue = formattedValue.substring(0, 14);
-        }
-
-        setPrNumber(formattedValue);
-    };
-
     return (
         <div className="space-y-6 pb-10">
             <div>
@@ -172,13 +139,12 @@ const AddProcurement: React.FC = () => {
 
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label className="text-slate-300">PR Number (Division-Month-Year-Number) *</Label>
+                                        <Label className="text-slate-300">PR Number *</Label>
                                         <Input
-                                            placeholder="e.g., DIV-JAN-26-001"
+                                            placeholder="Enter PR Number"
                                             value={prNumber}
-                                            onChange={handlePRNumberChange}
-                                            maxLength={14}
-                                            className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500 uppercase"
+                                            onChange={(e) => setPrNumber(e.target.value)}
+                                            className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
                                             required
                                         />
                                     </div>

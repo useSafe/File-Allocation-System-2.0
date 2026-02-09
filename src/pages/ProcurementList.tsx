@@ -453,45 +453,15 @@ const ProcurementList: React.FC = () => {
         return `${shelf}-${cabinet}-${folder}`;
     };
 
-    const exportToCSV = () => {
-        const exportData = filteredProcurements.map(p => {
-            const shelf = cabinets.find(c => c.id === p.cabinetId);
-            const cabinet = shelves.find(s => s.id === p.shelfId);
-            const folder = folders.find(f => f.id === p.folderId);
-
-            return {
-                'PR Number': p.prNumber,
-                'Description': p.description,
-                'Location': getLocationString(p),
-                'Shelf': shelf?.name || '',
-                'Cabinet': cabinet?.name || '',
-                'Folder': folder?.name || '',
-                'Status': p.status.charAt(0).toUpperCase() + p.status.slice(1),
-                'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
-                'Created At': format(new Date(p.createdAt), 'MMM d, yyyy HH:mm'),
-            };
-        });
-
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        const csv = XLSX.utils.sheet_to_csv(ws);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `procurement_records_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-        link.click();
-        toast.success('Exported to CSV successfully');
-    };
-
     const handleExportExcel = () => {
         const exportData = filteredProcurements.map(p => ({
             'PR Number': p.prNumber,
             'Description': p.description,
             'Location': getLocationString(p),
-            'Status': p.status,
-            'Urgency': p.urgencyLevel,
+            'Status': getStatusLabel(p.status),
             'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
-            'Tags': p.tags.join(', '),
-            'Notes': p.notes || '',
+            'Created By': p.createdByName || 'N/A',
+            'Created At': format(new Date(p.createdAt), 'MMM d, yyyy HH:mm'),
         }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
@@ -502,69 +472,6 @@ const ProcurementList: React.FC = () => {
         XLSX.writeFile(wb, filename);
 
         toast.success('Excel file exported successfully');
-    };
-
-    const handleExportPDFSummary = () => {
-        const doc = new jsPDF();
-
-        doc.setFontSize(18);
-        doc.text('Procurement Records - Summary Report', 14, 20);
-
-        doc.setFontSize(10);
-        doc.text(`Generated: ${format(new Date(), 'MMMM d, yyyy - hh:mm a')}`, 14, 28);
-
-        const summaryData = filteredProcurements.map(p => [
-            p.prNumber,
-            p.description.substring(0, 40) + (p.description.length > 40 ? '...' : ''),
-            getLocationString(p),
-            p.status,
-            format(new Date(p.dateAdded), 'MMM d, yyyy')
-        ]);
-
-        autoTable(doc, {
-            head: [['PR Number', 'Description', 'Location', 'Status', 'Date Added']],
-            body: summaryData,
-            startY: 35,
-            theme: 'grid',
-            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
-            styles: { fontSize: 9 },
-        });
-
-        doc.save(`procurement-summary-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-        toast.success('PDF summary exported successfully');
-    };
-
-    const handleExportPDFFull = () => {
-        const doc = new jsPDF();
-
-        doc.setFontSize(18);
-        doc.text('Procurement Records - Full Report', 14, 20);
-
-        doc.setFontSize(10);
-        doc.text(`Generated: ${format(new Date(), 'MMMM d, yyyy - hh:mm a')}`, 14, 28);
-
-        const fullData = filteredProcurements.map(p => [
-            p.prNumber,
-            p.description.substring(0, 30) + (p.description.length > 30 ? '...' : ''),
-            getLocationString(p),
-            p.status,
-            p.urgencyLevel,
-            format(new Date(p.dateAdded), 'MMM d, yyyy'),
-            p.tags.join(', ').substring(0, 20),
-            p.createdByName || 'N/A'
-        ]);
-
-        autoTable(doc, {
-            head: [['PR #', 'Description', 'Location', 'Status', 'Urgency', 'Date', 'Tags', 'Created By']],
-            body: fullData,
-            startY: 35,
-            theme: 'grid',
-            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
-            styles: { fontSize: 8 },
-        });
-
-        doc.save(`procurement-full-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-        toast.success('PDF full report exported successfully');
     };
 
     const handleDeleteConfirm = async () => {
@@ -648,31 +555,13 @@ const ProcurementList: React.FC = () => {
                         </AlertDialog>
                     )}
 
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button className="bg-emerald-600 hover:bg-emerald-700">
-                                <Download className="mr-2 h-4 w-4" />
-                                Export
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-[#1e293b] border-slate-700 text-white">
-                            <DropdownMenuItem
-                                onClick={exportToCSV}
-                                className="cursor-pointer focus:bg-slate-700"
-                            >
-                                <FileText className="mr-2 h-4 w-4" />
-                                Export as CSV
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onClick={handleExportExcel}
-                                className="cursor-pointer focus:bg-slate-700"
-                            >
-                                <FileText className="mr-2 h-4 w-4" />
-                                Export as Excel
-                            </DropdownMenuItem>
-
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button 
+                        onClick={handleExportExcel}
+                        className="bg-emerald-600 hover:bg-emerald-700"
+                    >
+                        <Download className="mr-2 h-4 w-4" />
+                        Export as Excel
+                    </Button>
                 </div>
             </div>
 
@@ -1309,13 +1198,3 @@ const ProcurementList: React.FC = () => {
 };
 
 export default ProcurementList;
-
-
-
-
-
-
-
-
-
-
