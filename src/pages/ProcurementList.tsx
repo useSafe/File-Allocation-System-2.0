@@ -618,44 +618,46 @@ const ProcurementList: React.FC = () => {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-    <div>
-        <h1 className="text-3xl font-bold text-white">Records</h1>
-        <p className="text-slate-400 mt-1">View and manage file tracking records</p>
-    </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-white">Records</h1>
 
-    <div className="flex gap-2">
-        {selectedIds.length > 0 && (
-            <AlertDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
-                <AlertDialogTrigger asChild>
-                    <Button variant="destructive" className="bg-red-600 hover:bg-red-700">
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete Selected ({selectedIds.length})
+                    <p className="text-slate-400 mt-1">View and manage file tracking records</p>
+                </div>
+
+                <div className="flex gap-2">
+                    {selectedIds.length > 0 && (
+                        <AlertDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" className="bg-red-600 hover:bg-red-700">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete Selected ({selectedIds.length})
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete {selectedIds.length} Records?</AlertDialogTitle>
+                                    <AlertDialogDescription className="text-slate-400">
+                                        This action cannot be undone. This will permanently delete the selected procurement records.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700 text-white">Delete All</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    )}
+
+                    {/* SIMPLIFIED EXPORT BUTTON - EXCEL ONLY */}
+                    <Button 
+                        onClick={handleExportExcel}
+                        className="bg-emerald-600 hover:bg-emerald-700"
+                    >
+                        <Download className="mr-2 h-4 w-4" />
+                        Export as Excel
                     </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete {selectedIds.length} Records?</AlertDialogTitle>
-                        <AlertDialogDescription className="text-slate-400">
-                            This action cannot be undone. This will permanently delete the selected procurement records.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700 text-white">Delete All</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        )}
-
-        <Button 
-            onClick={handleExportExcel}
-            className="bg-emerald-600 hover:bg-emerald-700"
-        >
-            <Download className="mr-2 h-4 w-4" />
-            Export as Excel
-        </Button>
-    </div>
-</div>
+                </div>
+            </div>
 
             <Card className="border-none bg-[#0f172a] shadow-lg">
                 <CardHeader className="pb-3">
@@ -986,8 +988,8 @@ const ProcurementList: React.FC = () => {
                                     <Label className="text-slate-300">PR Number</Label>
                                     <Input
                                         value={editingProcurement.prNumber}
-                                        onChange={(e) => setEditingProcurement({ ...editingProcurement, prNumber: e.target.value })}
-                                        className="bg-[#1e293b] border-slate-700 text-white"
+                                        onChange={(e) => setEditingProcurement({ ...editingProcurement, prNumber: e.target.value.toUpperCase() })}
+                                        className="bg-[#1e293b] border-slate-700 text-white uppercase"
                                     />
                                 </div>
                                 <div className="space-y-2">
