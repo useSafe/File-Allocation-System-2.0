@@ -68,8 +68,6 @@ import {
 import { format } from 'date-fns';
 import { Checkbox } from '@/components/ui/checkbox';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 const ProcurementList: React.FC = () => {
     const { user } = useAuth();
@@ -78,10 +76,18 @@ const ProcurementList: React.FC = () => {
 
     const [procurements, setProcurements] = useState<Procurement[]>([]);
 
-    // Location Data - Note: cabinets table stores Shelves (Tier 1), shelves table stores Cabinets (Tier 2)
-    const [cabinets, setCabinets] = useState<Cabinet[]>([]); // These are actually Shelves (Tier 1)
-    const [shelves, setShelves] = useState<Shelf[]>([]); // These are actually Cabinets (Tier 2)
+    // Location Data - NOTE: Variable names are confusing!
+    // cabinets array actually contains SHELVES (Tier 1)
+    // shelves array actually contains CABINETS (Tier 2)
+    // folders array contains FOLDERS (Tier 3)
+    const [cabinets, setCabinets] = useState<Cabinet[]>([]);
+    const [shelves, setShelves] = useState<Shelf[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
+
+    // For clarity
+    const actualShelves = cabinets;
+    const actualCabinets = shelves;
+    const actualFolders = folders;
 
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -93,25 +99,25 @@ const ProcurementList: React.FC = () => {
     const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
 
     // Dynamic Edit Form Data
-    const [editAvailableShelves, setEditAvailableShelves] = useState<Shelf[]>([]);
+    const [editAvailableCabinets, setEditAvailableCabinets] = useState<Shelf[]>([]);
     const [editAvailableFolders, setEditAvailableFolders] = useState<Folder[]>([]);
 
     // Cascading Filter Data
-    const [filterAvailableShelves, setFilterAvailableShelves] = useState<Shelf[]>([]);
+    const [filterAvailableCabinets, setFilterAvailableCabinets] = useState<Shelf[]>([]);
     const [filterAvailableFolders, setFilterAvailableFolders] = useState<Folder[]>([]);
 
-    // Filters (existing)
+    // Filters
     const [filters, setFilters] = useState<ProcurementFilters>({
         search: '',
-        cabinetId: '',
-        shelfId: '',
+        cabinetId: '',  // This actually filters by Shelf
+        shelfId: '',    // This actually filters by Cabinet
         folderId: folderIdFromUrl || '',
-        status: '', // kept for backward compatibility, not used for multi-select
+        status: '',
         monthYear: '',
         urgencyLevel: '',
     });
 
-    // New: multi-select status filter state (empty = all)
+    // Multi-select status filter
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
 
     // Sorting state
@@ -122,19 +128,15 @@ const ProcurementList: React.FC = () => {
 
     // Stack number calculation helper
     const calculateStackNumbers = (procurements: Procurement[], folderId: string): Map<string, number> => {
-        // Get all Available files in this folder, sorted by stackNumber then dateAdded
         const availableInFolder = procurements
             .filter(p => p.folderId === folderId && p.status === 'archived')
             .sort((a, b) => {
-                // If both have stack numbers, use them
                 if (a.stackNumber && b.stackNumber) {
                     return a.stackNumber - b.stackNumber;
                 }
-                // Otherwise sort by date added (older first)
                 return new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime();
             });
 
-        // Assign sequential stack numbers
         const stackMap = new Map<string, number>();
         availableInFolder.forEach((p, index) => {
             stackMap.set(p.id, index + 1);
@@ -147,12 +149,10 @@ const ProcurementList: React.FC = () => {
     const updateStackNumbersForFolder = async (folderId: string) => {
         const stackMap = calculateStackNumbers(procurements, folderId);
 
-        // Update each file in the folder
         for (const [procId, stackNum] of stackMap.entries()) {
             await updateProcurement(procId, { stackNumber: stackNum });
         }
 
-        // Clear stack number for borrowed files in this folder
         const borrowedInFolder = procurements
             .filter(p => p.folderId === folderId && p.status === 'active');
         for (const proc of borrowedInFolder) {
@@ -161,7 +161,6 @@ const ProcurementList: React.FC = () => {
             }
         }
     };
-
 
     // Status change confirmation
     const [pendingStatusChange, setPendingStatusChange] = useState<{
@@ -200,7 +199,6 @@ const ProcurementList: React.FC = () => {
         const { procurement, newStatus } = pendingStatusChange;
 
         if (newStatus === 'active') {
-            // Going to Borrowed - show edit modal
             setBorrowEditModal({
                 procurement,
                 borrowedBy: procurement.borrowedBy || '',
@@ -209,7 +207,6 @@ const ProcurementList: React.FC = () => {
             setIsStatusConfirmOpen(false);
             setPendingStatusChange(null);
         } else {
-            // Going to Available - just update
             confirmReturnFile(procurement);
         }
     };
@@ -232,7 +229,6 @@ const ProcurementList: React.FC = () => {
                 borrowedDate: new Date().toISOString()
             });
 
-            // Recalculate stack numbers
             await updateStackNumbersForFolder(procurement.folderId);
 
             setBorrowEditModal(null);
@@ -249,7 +245,6 @@ const ProcurementList: React.FC = () => {
                 returnDate: new Date().toISOString()
             });
 
-            // Recalculate stack numbers
             await updateStackNumbersForFolder(procurement.folderId);
 
             setIsStatusConfirmOpen(false);
@@ -261,7 +256,6 @@ const ProcurementList: React.FC = () => {
     };
 
     useEffect(() => {
-        // Subscribe to real-time updates
         const unsubProcurements = onProcurementsChange(setProcurements);
         const unsubCabinets = onCabinetsChange(setCabinets);
         const unsubShelves = onShelvesChange(setShelves);
@@ -277,22 +271,22 @@ const ProcurementList: React.FC = () => {
 
     useEffect(() => {
         if (folderIdFromUrl) {
-            const folder = folders.find(f => f.id === folderIdFromUrl);
+            const folder = actualFolders.find(f => f.id === folderIdFromUrl);
             if (folder) {
-                const shelf = shelves.find(s => s.id === folder.shelfId);
-                if (shelf) {
+                const cabinet = actualCabinets.find(c => c.id === folder.shelfId);
+                if (cabinet) {
                     setFilters(prev => ({
                         ...prev,
-                        cabinetId: shelf.cabinetId,
-                        shelfId: folder.shelfId,
+                        cabinetId: cabinet.cabinetId,  // Shelf ID
+                        shelfId: folder.shelfId,        // Cabinet ID
                         folderId: folderIdFromUrl
                     }));
                 }
             }
         }
-    }, [folderIdFromUrl, folders, shelves]);
+    }, [folderIdFromUrl, actualFolders, actualCabinets]);
 
-    // Read search parameter from URL and populate search box
+    // Read search parameter from URL
     useEffect(() => {
         const searchFromUrl = searchParams.get('search');
         if (searchFromUrl) {
@@ -306,39 +300,41 @@ const ProcurementList: React.FC = () => {
     // Update edit form cascading dropdowns
     useEffect(() => {
         if (editingProcurement && editingProcurement.cabinetId) {
-            setEditAvailableShelves(shelves.filter(s => s.cabinetId === editingProcurement.cabinetId));
+            // cabinetId stores shelf, so filter cabinets by this shelf
+            setEditAvailableCabinets(actualCabinets.filter(c => c.cabinetId === editingProcurement.cabinetId));
         } else {
-            setEditAvailableShelves([]);
+            setEditAvailableCabinets([]);
         }
-    }, [editingProcurement?.cabinetId, shelves]);
+    }, [editingProcurement?.cabinetId, actualCabinets]);
 
     useEffect(() => {
         if (editingProcurement && editingProcurement.shelfId) {
-            setEditAvailableFolders(folders.filter(f => f.shelfId === editingProcurement.shelfId));
+            // shelfId stores cabinet, so filter folders by this cabinet
+            setEditAvailableFolders(actualFolders.filter(f => f.shelfId === editingProcurement.shelfId));
         } else {
             setEditAvailableFolders([]);
         }
-    }, [editingProcurement?.shelfId, folders]);
+    }, [editingProcurement?.shelfId, actualFolders]);
 
     // Update filter cascading dropdowns
     useEffect(() => {
         if (filters.cabinetId) {
-            setFilterAvailableShelves(shelves.filter(s => s.cabinetId === filters.cabinetId));
+            // cabinetId is shelf, filter cabinets
+            setFilterAvailableCabinets(actualCabinets.filter(c => c.cabinetId === filters.cabinetId));
         } else {
-            setFilterAvailableShelves([]);
+            setFilterAvailableCabinets([]);
         }
-    }, [filters.cabinetId, shelves]);
+    }, [filters.cabinetId, actualCabinets]);
 
     useEffect(() => {
         if (filters.shelfId) {
-            setFilterAvailableFolders(folders.filter(f => f.shelfId === filters.shelfId));
+            // shelfId is cabinet, filter folders
+            setFilterAvailableFolders(actualFolders.filter(f => f.shelfId === filters.shelfId));
         } else {
             setFilterAvailableFolders([]);
         }
-    }, [filters.shelfId, folders]);
+    }, [filters.shelfId, actualFolders]);
 
-    // build status options based on current procurements (fall back to common ones)
-    // Filter options
     const statusOptions: ProcurementStatus[] = ['active', 'archived'];
 
     const toggleStatusFilter = (status: string) => {
@@ -357,7 +353,6 @@ const ProcurementList: React.FC = () => {
         const matchesShelf = !filters.shelfId || filters.shelfId === 'all_shelves' || procurement.shelfId === filters.shelfId;
         const matchesFolder = !filters.folderId || filters.folderId === 'all_folders' || procurement.folderId === filters.folderId;
 
-        // New: multi-select status filtering (empty -> all)
         const matchesStatus = statusFilters.length === 0 || statusFilters.includes(procurement.status);
 
         const matchesUrgency = !filters.urgencyLevel || filters.urgencyLevel === 'all_urgency' || procurement.urgencyLevel === (filters.urgencyLevel as UrgencyLevel);
@@ -371,10 +366,8 @@ const ProcurementList: React.FC = () => {
         } else if (sortField === 'prNumber') {
             comparison = a.prNumber.localeCompare(b.prNumber);
         } else if (sortField === 'date') {
-            // Reverse comparison for date: newer dates first when ascending
             comparison = new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime();
         } else if (sortField === 'stackNumber') {
-            // Sort by stack number (files without stack numbers go to end)
             const aStack = a.stackNumber || 999;
             const bStack = b.stackNumber || 999;
             comparison = aStack - bStack;
@@ -389,8 +382,6 @@ const ProcurementList: React.FC = () => {
         currentPage * itemsPerPage
     );
 
-
-
     const clearFilters = () => {
         setFilters({
             search: '',
@@ -401,9 +392,7 @@ const ProcurementList: React.FC = () => {
             monthYear: '',
             urgencyLevel: '',
         });
-        // clear multi-select status
         setStatusFilters([]);
-        // reset sorting
         setSortField('date');
         setSortDirection('asc');
         setCurrentPage(1);
@@ -432,32 +421,19 @@ const ProcurementList: React.FC = () => {
         }
     };
 
-    const handleDelete = () => {
-        if (deleteId) {
-            deleteProcurement(deleteId);
-            toast.success('Record deleted successfully');
-            setDeleteId(null);
-        }
-    };
-
-    // Status change handlers
-
-
-
-
-    // Updated to show: Shelf-Cabinet-Folder (S1-C1-F1)
+    // Location string: Shelf-Cabinet-Folder
     const getLocationString = (p: Procurement) => {
-        const shelf = cabinets.find(c => c.id === p.cabinetId)?.code || '?'; // cabinetId points to Shelf (Tier 1)
-        const cabinet = shelves.find(s => s.id === p.shelfId)?.code || '?'; // shelfId points to Cabinet (Tier 2)
-        const folder = folders.find(f => f.id === p.folderId)?.code || '?'; // folderId points to Folder (Tier 3)
+        const shelf = actualShelves.find(s => s.id === p.cabinetId)?.code || '?';
+        const cabinet = actualCabinets.find(c => c.id === p.shelfId)?.code || '?';
+        const folder = actualFolders.find(f => f.id === p.folderId)?.code || '?';
         return `${shelf}-${cabinet}-${folder}`;
     };
 
-    const exportToCSV = () => {
+    const handleExportExcel = () => {
         const exportData = filteredProcurements.map(p => {
-            const shelf = cabinets.find(c => c.id === p.cabinetId);
-            const cabinet = shelves.find(s => s.id === p.shelfId);
-            const folder = folders.find(f => f.id === p.folderId);
+            const shelf = actualShelves.find(s => s.id === p.cabinetId);
+            const cabinet = actualCabinets.find(c => c.id === p.shelfId);
+            const folder = actualFolders.find(f => f.id === p.folderId);
 
             return {
                 'PR Number': p.prNumber,
@@ -466,33 +442,15 @@ const ProcurementList: React.FC = () => {
                 'Shelf': shelf?.name || '',
                 'Cabinet': cabinet?.name || '',
                 'Folder': folder?.name || '',
-                'Status': p.status.charAt(0).toUpperCase() + p.status.slice(1),
+                'Status': getStatusLabel(p.status),
+                'Urgency': p.urgencyLevel,
                 'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
+                'Tags': p.tags.join(', '),
+                'Notes': p.notes || '',
+                'Created By': `${p.createdByName || 'Unknown'} (${p.createdBy || 'N/A'})`,
                 'Created At': format(new Date(p.createdAt), 'MMM d, yyyy HH:mm'),
             };
         });
-
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        const csv = XLSX.utils.sheet_to_csv(ws);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `procurement_records_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-        link.click();
-        toast.success('Exported to CSV successfully');
-    };
-
-    const handleExportExcel = () => {
-        const exportData = filteredProcurements.map(p => ({
-            'PR Number': p.prNumber,
-            'Description': p.description,
-            'Location': getLocationString(p),
-            'Status': p.status,
-            'Urgency': p.urgencyLevel,
-            'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
-            'Tags': p.tags.join(', '),
-            'Notes': p.notes || '',
-        }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
@@ -502,69 +460,6 @@ const ProcurementList: React.FC = () => {
         XLSX.writeFile(wb, filename);
 
         toast.success('Excel file exported successfully');
-    };
-
-    const handleExportPDFSummary = () => {
-        const doc = new jsPDF();
-
-        doc.setFontSize(18);
-        doc.text('Procurement Records - Summary Report', 14, 20);
-
-        doc.setFontSize(10);
-        doc.text(`Generated: ${format(new Date(), 'MMMM d, yyyy - hh:mm a')}`, 14, 28);
-
-        const summaryData = filteredProcurements.map(p => [
-            p.prNumber,
-            p.description.substring(0, 40) + (p.description.length > 40 ? '...' : ''),
-            getLocationString(p),
-            p.status,
-            format(new Date(p.dateAdded), 'MMM d, yyyy')
-        ]);
-
-        autoTable(doc, {
-            head: [['PR Number', 'Description', 'Location', 'Status', 'Date Added']],
-            body: summaryData,
-            startY: 35,
-            theme: 'grid',
-            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
-            styles: { fontSize: 9 },
-        });
-
-        doc.save(`procurement-summary-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-        toast.success('PDF summary exported successfully');
-    };
-
-    const handleExportPDFFull = () => {
-        const doc = new jsPDF();
-
-        doc.setFontSize(18);
-        doc.text('Procurement Records - Full Report', 14, 20);
-
-        doc.setFontSize(10);
-        doc.text(`Generated: ${format(new Date(), 'MMMM d, yyyy - hh:mm a')}`, 14, 28);
-
-        const fullData = filteredProcurements.map(p => [
-            p.prNumber,
-            p.description.substring(0, 30) + (p.description.length > 30 ? '...' : ''),
-            getLocationString(p),
-            p.status,
-            p.urgencyLevel,
-            format(new Date(p.dateAdded), 'MMM d, yyyy'),
-            p.tags.join(', ').substring(0, 20),
-            p.createdByName || 'N/A'
-        ]);
-
-        autoTable(doc, {
-            head: [['PR #', 'Description', 'Location', 'Status', 'Urgency', 'Date', 'Tags', 'Created By']],
-            body: fullData,
-            startY: 35,
-            theme: 'grid',
-            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
-            styles: { fontSize: 8 },
-        });
-
-        doc.save(`procurement-full-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-        toast.success('PDF full report exported successfully');
     };
 
     const handleDeleteConfirm = async () => {
@@ -620,7 +515,6 @@ const ProcurementList: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Records</h1>
-
                     <p className="text-slate-400 mt-1">View and manage file tracking records</p>
                 </div>
 
@@ -672,14 +566,15 @@ const ProcurementList: React.FC = () => {
                             />
                         </div>
                         <div className="flex flex-wrap gap-2">
+                            {/* SHELF FILTER */}
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.cabinetId}
                                     onValueChange={(value) => setFilters({
                                         ...filters,
                                         cabinetId: value,
-                                        shelfId: '', // Reset child
-                                        folderId: '' // Reset child
+                                        shelfId: '',
+                                        folderId: ''
                                     })}
                                 >
                                     <SelectTrigger className="w-[150px] border-none bg-transparent text-white focus:ring-0">
@@ -687,20 +582,21 @@ const ProcurementList: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
                                         <SelectItem value="all_cabinets">All Shelves</SelectItem>
-                                        {cabinets.map((c) => (
-                                            <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
+                                        {actualShelves.map((shelf) => (
+                                            <SelectItem key={shelf.id} value={shelf.id}>{shelf.code} - {shelf.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
 
+                            {/* CABINET FILTER */}
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.shelfId}
                                     onValueChange={(value) => setFilters({
                                         ...filters,
                                         shelfId: value,
-                                        folderId: '' // Reset child
+                                        folderId: ''
                                     })}
                                     disabled={!filters.cabinetId}
                                 >
@@ -709,13 +605,14 @@ const ProcurementList: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
                                         <SelectItem value="all_shelves">All Cabinets</SelectItem>
-                                        {filterAvailableShelves.map((s) => (
-                                            <SelectItem key={s.id} value={s.id}>{s.code} - {s.name}</SelectItem>
+                                        {filterAvailableCabinets.map((cabinet) => (
+                                            <SelectItem key={cabinet.id} value={cabinet.id}>{cabinet.code} - {cabinet.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
 
+                            {/* FOLDER FILTER */}
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.folderId}
@@ -727,8 +624,8 @@ const ProcurementList: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
                                         <SelectItem value="all_folders">All Folders</SelectItem>
-                                        {filterAvailableFolders.map((f) => (
-                                            <SelectItem key={f.id} value={f.id}>{f.code} - {f.name}</SelectItem>
+                                        {filterAvailableFolders.map((folder) => (
+                                            <SelectItem key={folder.id} value={folder.id}>{folder.code} - {folder.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -750,8 +647,6 @@ const ProcurementList: React.FC = () => {
                                     <DropdownMenuContent align="start" className="bg-[#1e293b] border-slate-700 text-white p-3 w-56">
                                         <div className="mb-2 text-slate-300 text-sm">Select status</div>
                                         <div className="flex flex-col gap-2 max-h-48 overflow-auto">
-
-
                                             {statusOptions.map((status) => (
                                                 <div key={status} className="flex items-center gap-2">
                                                     <Checkbox
@@ -874,11 +769,11 @@ const ProcurementList: React.FC = () => {
                                                     <div
                                                         className="h-6 w-6 rounded-md border border-slate-600 flex-shrink-0"
                                                         style={{
-                                                            backgroundColor: folders.find(f => f.id === procurement.folderId)?.color || '#FF6B6B'
+                                                            backgroundColor: actualFolders.find(f => f.id === procurement.folderId)?.color || '#FF6B6B'
                                                         }}
                                                     />
                                                     <span className="text-slate-400 text-sm font-mono">
-                                                        {folders.find(f => f.id === procurement.folderId)?.code || '?'}
+                                                        {actualFolders.find(f => f.id === procurement.folderId)?.code || '?'}
                                                     </span>
                                                 </div>
                                             </TableCell>
@@ -1025,16 +920,16 @@ const ProcurementList: React.FC = () => {
                                         onValueChange={(val) => setEditingProcurement({
                                             ...editingProcurement,
                                             cabinetId: val,
-                                            shelfId: '', // Reset child
-                                            folderId: '' // Reset child
+                                            shelfId: '',
+                                            folderId: ''
                                         })}
                                     >
                                         <SelectTrigger className="bg-[#1e293b] border-slate-700 text-white">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            {cabinets.map((c) => (
-                                                <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
+                                            {actualShelves.map((shelf) => (
+                                                <SelectItem key={shelf.id} value={shelf.id}>{shelf.code} - {shelf.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -1047,7 +942,7 @@ const ProcurementList: React.FC = () => {
                                         onValueChange={(val) => setEditingProcurement({
                                             ...editingProcurement,
                                             shelfId: val,
-                                            folderId: '' // Reset child
+                                            folderId: ''
                                         })}
                                         disabled={!editingProcurement.cabinetId}
                                     >
@@ -1055,8 +950,8 @@ const ProcurementList: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            {editAvailableShelves.map((s) => (
-                                                <SelectItem key={s.id} value={s.id}>{s.code} - {s.name}</SelectItem>
+                                            {editAvailableCabinets.map((cabinet) => (
+                                                <SelectItem key={cabinet.id} value={cabinet.id}>{cabinet.code} - {cabinet.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -1073,8 +968,8 @@ const ProcurementList: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            {editAvailableFolders.map((f) => (
-                                                <SelectItem key={f.id} value={f.id}>{f.code} - {f.name}</SelectItem>
+                                            {editAvailableFolders.map((folder) => (
+                                                <SelectItem key={folder.id} value={folder.id}>{folder.code} - {folder.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -1099,7 +994,7 @@ const ProcurementList: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Borrower Information Section - Always shown */}
+                            {/* Borrower Information Section */}
                             <div className="space-y-4 border-t border-slate-800 pt-4">
                                 <Label className="text-lg font-semibold text-white">Borrower Information</Label>
 
@@ -1287,7 +1182,7 @@ const ProcurementList: React.FC = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div >
+        </div>
     );
 };
 
