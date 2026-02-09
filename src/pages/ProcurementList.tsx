@@ -60,11 +60,16 @@ import {
     ChevronRight,
     MapPin,
     FilterX,
-    Download
+    Download,
+    ArrowUpDown,
+    ArrowUp,
+    ArrowDown
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Checkbox } from '@/components/ui/checkbox';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const ProcurementList: React.FC = () => {
     const { user } = useAuth();
@@ -109,7 +114,151 @@ const ProcurementList: React.FC = () => {
     // New: multi-select status filter state (empty = all)
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
 
-    const itemsPerPage = 10;
+    // Sorting state
+    const [sortField, setSortField] = useState<'name' | 'prNumber' | 'date' | 'stackNumber'>('date');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+    const itemsPerPage = 20;
+
+    // Stack number calculation helper
+    const calculateStackNumbers = (procurements: Procurement[], folderId: string): Map<string, number> => {
+        // Get all Available files in this folder, sorted by stackNumber then dateAdded
+        const availableInFolder = procurements
+            .filter(p => p.folderId === folderId && p.status === 'archived')
+            .sort((a, b) => {
+                // If both have stack numbers, use them
+                if (a.stackNumber && b.stackNumber) {
+                    return a.stackNumber - b.stackNumber;
+                }
+                // Otherwise sort by date added (older first)
+                return new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime();
+            });
+
+        // Assign sequential stack numbers
+        const stackMap = new Map<string, number>();
+        availableInFolder.forEach((p, index) => {
+            stackMap.set(p.id, index + 1);
+        });
+
+        return stackMap;
+    };
+
+    // Update stack numbers for all files in a folder
+    const updateStackNumbersForFolder = async (folderId: string) => {
+        const stackMap = calculateStackNumbers(procurements, folderId);
+
+        // Update each file in the folder
+        for (const [procId, stackNum] of stackMap.entries()) {
+            await updateProcurement(procId, { stackNumber: stackNum });
+        }
+
+        // Clear stack number for borrowed files in this folder
+        const borrowedInFolder = procurements
+            .filter(p => p.folderId === folderId && p.status === 'active');
+        for (const proc of borrowedInFolder) {
+            if (proc.stackNumber !== undefined) {
+                await updateProcurement(proc.id, { stackNumber: undefined });
+            }
+        }
+    };
+
+
+    // Status change confirmation
+    const [pendingStatusChange, setPendingStatusChange] = useState<{
+        procurement: Procurement;
+        newStatus: ProcurementStatus;
+    } | null>(null);
+    const [isStatusConfirmOpen, setIsStatusConfirmOpen] = useState(false);
+
+    // Borrow edit modal
+    const [borrowEditModal, setBorrowEditModal] = useState<{
+        procurement: Procurement;
+        borrowedBy: string;
+        division: string;
+    } | null>(null);
+
+    // Helper functions for status
+    const getStatusLabel = (status: ProcurementStatus): string => {
+        return status === 'active' ? 'Borrowed' : 'Archived';
+    };
+
+    const getStatusColor = (status: ProcurementStatus): string => {
+        return status === 'active'
+            ? 'bg-orange-500/10 text-orange-500 border-orange-500/20'
+            : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+    };
+
+    // Status change workflow
+    const handleStatusChange = (procurement: Procurement, newStatus: ProcurementStatus) => {
+        setPendingStatusChange({ procurement, newStatus });
+        setIsStatusConfirmOpen(true);
+    };
+
+    const proceedStatusChange = () => {
+        if (!pendingStatusChange) return;
+
+        const { procurement, newStatus } = pendingStatusChange;
+
+        if (newStatus === 'active') {
+            // Going to Borrowed - show edit modal
+            setBorrowEditModal({
+                procurement,
+                borrowedBy: procurement.borrowedBy || '',
+                division: procurement.division || ''
+            });
+            setIsStatusConfirmOpen(false);
+            setPendingStatusChange(null);
+        } else {
+            // Going to Available - just update
+            confirmReturnFile(procurement);
+        }
+    };
+
+    const saveBorrowChanges = async () => {
+        if (!borrowEditModal) return;
+
+        const { procurement, borrowedBy, division } = borrowEditModal;
+
+        if (!borrowedBy || !division) {
+            toast.error('Please fill in all required fields');
+            return;
+        }
+
+        try {
+            await updateProcurement(procurement.id, {
+                status: 'active',
+                borrowedBy,
+                division,
+                borrowedDate: new Date().toISOString()
+            });
+
+            // Recalculate stack numbers
+            await updateStackNumbersForFolder(procurement.folderId);
+
+            setBorrowEditModal(null);
+            toast.success('File marked as borrowed');
+        } catch (error) {
+            toast.error('Failed to update file status');
+        }
+    };
+
+    const confirmReturnFile = async (procurement: Procurement) => {
+        try {
+            await updateProcurement(procurement.id, {
+                status: 'archived',
+                returnDate: new Date().toISOString()
+            });
+
+            // Recalculate stack numbers
+            await updateStackNumbersForFolder(procurement.folderId);
+
+            setIsStatusConfirmOpen(false);
+            setPendingStatusChange(null);
+            toast.success('File returned and marked as archived');
+        } catch (error) {
+            toast.error('Failed to return file');
+        }
+    };
 
     useEffect(() => {
         // Subscribe to real-time updates
@@ -142,6 +291,17 @@ const ProcurementList: React.FC = () => {
             }
         }
     }, [folderIdFromUrl, folders, shelves]);
+
+    // Read search parameter from URL and populate search box
+    useEffect(() => {
+        const searchFromUrl = searchParams.get('search');
+        if (searchFromUrl) {
+            setFilters(prev => ({
+                ...prev,
+                search: searchFromUrl
+            }));
+        }
+    }, [searchParams]);
 
     // Update edit form cascading dropdowns
     useEffect(() => {
@@ -178,11 +338,8 @@ const ProcurementList: React.FC = () => {
     }, [filters.shelfId, folders]);
 
     // build status options based on current procurements (fall back to common ones)
-    const statusOptions = Array.from(new Set([
-        ...procurements.map(p => p.status),
-        'active',
-        'archived'
-    ])).filter(Boolean) as string[];
+    // Filter options
+    const statusOptions: ProcurementStatus[] = ['active', 'archived'];
 
     const toggleStatusFilter = (status: string) => {
         setStatusFilters(prev => {
@@ -203,9 +360,27 @@ const ProcurementList: React.FC = () => {
         // New: multi-select status filtering (empty -> all)
         const matchesStatus = statusFilters.length === 0 || statusFilters.includes(procurement.status);
 
-        const matchesUrgency = !filters.urgencyLevel || filters.urgencyLevel === 'all_urgency' || procurement.urgencyLevel === filters.urgencyLevel;
+        const matchesUrgency = !filters.urgencyLevel || filters.urgencyLevel === 'all_urgency' || procurement.urgencyLevel === (filters.urgencyLevel as UrgencyLevel);
 
         return matchesSearch && matchesCabinet && matchesShelf && matchesFolder && matchesStatus && matchesUrgency;
+    }).sort((a, b) => {
+        let comparison = 0;
+
+        if (sortField === 'name') {
+            comparison = a.description.localeCompare(b.description);
+        } else if (sortField === 'prNumber') {
+            comparison = a.prNumber.localeCompare(b.prNumber);
+        } else if (sortField === 'date') {
+            // Reverse comparison for date: newer dates first when ascending
+            comparison = new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime();
+        } else if (sortField === 'stackNumber') {
+            // Sort by stack number (files without stack numbers go to end)
+            const aStack = a.stackNumber || 999;
+            const bStack = b.stackNumber || 999;
+            comparison = aStack - bStack;
+        }
+
+        return sortDirection === 'asc' ? comparison : -comparison;
     });
 
     const totalPages = Math.ceil(filteredProcurements.length / itemsPerPage);
@@ -214,13 +389,7 @@ const ProcurementList: React.FC = () => {
         currentPage * itemsPerPage
     );
 
-    const getStatusColor = (status: ProcurementStatus) => {
-        switch (status) {
-            case 'active': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
-            case 'archived': return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
-            default: return 'bg-slate-500/10 text-slate-500';
-        }
-    };
+
 
     const clearFilters = () => {
         setFilters({
@@ -234,6 +403,9 @@ const ProcurementList: React.FC = () => {
         });
         // clear multi-select status
         setStatusFilters([]);
+        // reset sorting
+        setSortField('date');
+        setSortDirection('asc');
         setCurrentPage(1);
     };
 
@@ -260,6 +432,19 @@ const ProcurementList: React.FC = () => {
         }
     };
 
+    const handleDelete = () => {
+        if (deleteId) {
+            deleteProcurement(deleteId);
+            toast.success('Record deleted successfully');
+            setDeleteId(null);
+        }
+    };
+
+    // Status change handlers
+
+
+
+
     // Updated to show: Shelf-Cabinet-Folder (S1-C1-F1)
     const getLocationString = (p: Procurement) => {
         const shelf = cabinets.find(c => c.id === p.cabinetId)?.code || '?'; // cabinetId points to Shelf (Tier 1)
@@ -268,8 +453,7 @@ const ProcurementList: React.FC = () => {
         return `${shelf}-${cabinet}-${folder}`;
     };
 
-    // SIMPLIFIED EXCEL EXPORT FUNCTION
-    const handleExportExcel = () => {
+    const exportToCSV = () => {
         const exportData = filteredProcurements.map(p => {
             const shelf = cabinets.find(c => c.id === p.cabinetId);
             const cabinet = shelves.find(s => s.id === p.shelfId);
@@ -283,14 +467,32 @@ const ProcurementList: React.FC = () => {
                 'Cabinet': cabinet?.name || '',
                 'Folder': folder?.name || '',
                 'Status': p.status.charAt(0).toUpperCase() + p.status.slice(1),
-                'Urgency': p.urgencyLevel,
                 'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
-                'Tags': p.tags.join(', '),
-                'Notes': p.notes || '',
-                'Created By': `${p.createdByName || 'Unknown'} (${p.createdBy || 'N/A'})`,
                 'Created At': format(new Date(p.createdAt), 'MMM d, yyyy HH:mm'),
             };
         });
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const csv = XLSX.utils.sheet_to_csv(ws);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `procurement_records_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+        link.click();
+        toast.success('Exported to CSV successfully');
+    };
+
+    const handleExportExcel = () => {
+        const exportData = filteredProcurements.map(p => ({
+            'PR Number': p.prNumber,
+            'Description': p.description,
+            'Location': getLocationString(p),
+            'Status': p.status,
+            'Urgency': p.urgencyLevel,
+            'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
+            'Tags': p.tags.join(', '),
+            'Notes': p.notes || '',
+        }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
@@ -300,6 +502,69 @@ const ProcurementList: React.FC = () => {
         XLSX.writeFile(wb, filename);
 
         toast.success('Excel file exported successfully');
+    };
+
+    const handleExportPDFSummary = () => {
+        const doc = new jsPDF();
+
+        doc.setFontSize(18);
+        doc.text('Procurement Records - Summary Report', 14, 20);
+
+        doc.setFontSize(10);
+        doc.text(`Generated: ${format(new Date(), 'MMMM d, yyyy - hh:mm a')}`, 14, 28);
+
+        const summaryData = filteredProcurements.map(p => [
+            p.prNumber,
+            p.description.substring(0, 40) + (p.description.length > 40 ? '...' : ''),
+            getLocationString(p),
+            p.status,
+            format(new Date(p.dateAdded), 'MMM d, yyyy')
+        ]);
+
+        autoTable(doc, {
+            head: [['PR Number', 'Description', 'Location', 'Status', 'Date Added']],
+            body: summaryData,
+            startY: 35,
+            theme: 'grid',
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
+            styles: { fontSize: 9 },
+        });
+
+        doc.save(`procurement-summary-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+        toast.success('PDF summary exported successfully');
+    };
+
+    const handleExportPDFFull = () => {
+        const doc = new jsPDF();
+
+        doc.setFontSize(18);
+        doc.text('Procurement Records - Full Report', 14, 20);
+
+        doc.setFontSize(10);
+        doc.text(`Generated: ${format(new Date(), 'MMMM d, yyyy - hh:mm a')}`, 14, 28);
+
+        const fullData = filteredProcurements.map(p => [
+            p.prNumber,
+            p.description.substring(0, 30) + (p.description.length > 30 ? '...' : ''),
+            getLocationString(p),
+            p.status,
+            p.urgencyLevel,
+            format(new Date(p.dateAdded), 'MMM d, yyyy'),
+            p.tags.join(', ').substring(0, 20),
+            p.createdByName || 'N/A'
+        ]);
+
+        autoTable(doc, {
+            head: [['PR #', 'Description', 'Location', 'Status', 'Urgency', 'Date', 'Tags', 'Created By']],
+            body: fullData,
+            startY: 35,
+            theme: 'grid',
+            headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
+            styles: { fontSize: 8 },
+        });
+
+        doc.save(`procurement-full-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+        toast.success('PDF full report exported successfully');
     };
 
     const handleDeleteConfirm = async () => {
@@ -355,6 +620,7 @@ const ProcurementList: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Records</h1>
+
                     <p className="text-slate-400 mt-1">View and manage file tracking records</p>
                 </div>
 
@@ -382,14 +648,31 @@ const ProcurementList: React.FC = () => {
                         </AlertDialog>
                     )}
 
-                    {/* SIMPLIFIED EXPORT BUTTON - EXCEL ONLY */}
-                    <Button 
-                        onClick={handleExportExcel}
-                        className="bg-emerald-600 hover:bg-emerald-700"
-                    >
-                        <Download className="mr-2 h-4 w-4" />
-                        Export as Excel
-                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button className="bg-emerald-600 hover:bg-emerald-700">
+                                <Download className="mr-2 h-4 w-4" />
+                                Export
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="bg-[#1e293b] border-slate-700 text-white">
+                            <DropdownMenuItem
+                                onClick={exportToCSV}
+                                className="cursor-pointer focus:bg-slate-700"
+                            >
+                                <FileText className="mr-2 h-4 w-4" />
+                                Export as CSV
+                            </DropdownMenuItem>
+                            {/* <DropdownMenuItem
+                                onClick={handleExportExcel}
+                                className="cursor-pointer focus:bg-slate-700"
+                            >
+                                <FileText className="mr-2 h-4 w-4" />
+                                Export as Excel
+                            </DropdownMenuItem> */}
+
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
@@ -406,12 +689,11 @@ const ProcurementList: React.FC = () => {
                             />
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {/* SHELF FILTER */}
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.cabinetId}
-                                    onValueChange={(value) => setFilters({ 
-                                        ...filters, 
+                                    onValueChange={(value) => setFilters({
+                                        ...filters,
                                         cabinetId: value,
                                         shelfId: '', // Reset child
                                         folderId: '' // Reset child
@@ -429,12 +711,11 @@ const ProcurementList: React.FC = () => {
                                 </Select>
                             </div>
 
-                            {/* CABINET FILTER */}
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.shelfId}
-                                    onValueChange={(value) => setFilters({ 
-                                        ...filters, 
+                                    onValueChange={(value) => setFilters({
+                                        ...filters,
                                         shelfId: value,
                                         folderId: '' // Reset child
                                     })}
@@ -452,7 +733,6 @@ const ProcurementList: React.FC = () => {
                                 </Select>
                             </div>
 
-                            {/* FOLDER FILTER */}
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.folderId}
@@ -487,6 +767,8 @@ const ProcurementList: React.FC = () => {
                                     <DropdownMenuContent align="start" className="bg-[#1e293b] border-slate-700 text-white p-3 w-56">
                                         <div className="mb-2 text-slate-300 text-sm">Select status</div>
                                         <div className="flex flex-col gap-2 max-h-48 overflow-auto">
+
+
                                             {statusOptions.map((status) => (
                                                 <div key={status} className="flex items-center gap-2">
                                                     <Checkbox
@@ -499,13 +781,37 @@ const ProcurementList: React.FC = () => {
                                                         onClick={() => toggleStatusFilter(status)}
                                                         className="text-sm text-slate-200 text-left w-full"
                                                     >
-                                                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                                                        {getStatusLabel(status)}
                                                     </button>
                                                 </div>
                                             ))}
                                         </div>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
+                            </div>
+
+                            {/* SORT controls */}
+                            <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
+                                <Select value={sortField} onValueChange={(value) => setSortField(value as 'name' | 'prNumber' | 'date' | 'stackNumber')}>
+                                    <SelectTrigger className="w-[150px] border-none bg-transparent text-white focus:ring-0">
+                                        <SelectValue placeholder="Sort by" />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
+                                        <SelectItem value="name">Name</SelectItem>
+                                        <SelectItem value="prNumber">PR Number</SelectItem>
+                                        <SelectItem value="date">Date Added</SelectItem>
+                                        <SelectItem value="stackNumber">Stack Number</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                    className="h-8 w-8 text-slate-400 hover:text-white"
+                                    title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
+                                >
+                                    {sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                                </Button>
                             </div>
 
                             <Button
@@ -535,6 +841,8 @@ const ProcurementList: React.FC = () => {
                                     <TableHead className="text-slate-300">PR Number</TableHead>
                                     <TableHead className="text-slate-300">Description</TableHead>
                                     <TableHead className="text-slate-300">Location</TableHead>
+                                    <TableHead className="text-center text-slate-300">Stack</TableHead>
+                                    <TableHead className="text-slate-300">Folder</TableHead>
                                     <TableHead className="text-slate-300">Status</TableHead>
                                     <TableHead className="text-slate-300">Date</TableHead>
                                     <TableHead className="text-right text-slate-300">Actions</TableHead>
@@ -543,7 +851,7 @@ const ProcurementList: React.FC = () => {
                             <TableBody>
                                 {paginatedProcurements.length === 0 ? (
                                     <TableRow className="border-slate-800">
-                                        <TableCell colSpan={7} className="h-24 text-center text-slate-500">
+                                        <TableCell colSpan={10} className="h-24 text-center text-slate-500">
                                             No records found.
                                         </TableCell>
                                     </TableRow>
@@ -571,54 +879,81 @@ const ProcurementList: React.FC = () => {
                                                     </span>
                                                 </div>
                                             </TableCell>
-                                            <TableCell>
-                                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(procurement.status)}`}>
-                                                    {procurement.status.charAt(0).toUpperCase() + procurement.status.slice(1)}
+                                            <TableCell className="text-center">
+                                                <span className="text-slate-400 text-sm font-mono">
+                                                    {procurement.status === 'archived' && procurement.stackNumber
+                                                        ? `↕${procurement.stackNumber}`
+                                                        : '-'}
                                                 </span>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <div
+                                                        className="h-6 w-6 rounded-md border border-slate-600 flex-shrink-0"
+                                                        style={{
+                                                            backgroundColor: folders.find(f => f.id === procurement.folderId)?.color || '#FF6B6B'
+                                                        }}
+                                                    />
+                                                    <span className="text-slate-400 text-sm font-mono">
+                                                        {folders.find(f => f.id === procurement.folderId)?.code || '?'}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Select
+                                                    value={procurement.status}
+                                                    onValueChange={(value) => handleStatusChange(procurement, value as ProcurementStatus)}
+                                                >
+                                                    <SelectTrigger className={`w-[130px] border ${getStatusColor(procurement.status)}`}>
+                                                        <SelectValue>
+                                                            {getStatusLabel(procurement.status)}
+                                                        </SelectValue>
+                                                    </SelectTrigger>
+                                                    <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
+                                                        <SelectItem value="active">Borrowed</SelectItem>
+                                                        <SelectItem value="archived">Archived</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                             </TableCell>
                                             <TableCell className="text-slate-400">
                                                 {format(new Date(procurement.dateAdded), 'MMM d, yyyy')}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <AlertDialog>
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                                                                <MoreVertical className="h-4 w-4" />
-                                                            </Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end" className="bg-[#1e293b] border-slate-700 text-white">
-                                                            <DropdownMenuItem
-                                                                onClick={() => handleEdit(procurement)}
-                                                                className="cursor-pointer focus:bg-slate-700"
+                                                <div className="flex justify-end gap-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleEdit(procurement)}
+                                                        className="h-8 bg-blue-600/10 border border-blue-600/20 text-blue-500 hover:bg-blue-600/20 hover:text-blue-400"
+                                                    >
+                                                        <Pencil className="h-4 w-4 mr-1" />
+                                                        Edit
+                                                    </Button>
+                                                    <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                onClick={() => setDeleteId(procurement.id)}
+                                                                className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                                                             >
-                                                                <Pencil className="mr-2 h-4 w-4" />
-                                                                Edit
-                                                            </DropdownMenuItem>
-                                                            <AlertDialogTrigger asChild>
-                                                                <DropdownMenuItem
-                                                                    className="text-red-500 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
-                                                                    onClick={() => setDeleteId(procurement.id)}
-                                                                >
-                                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                                    Delete
-                                                                </DropdownMenuItem>
-                                                            </AlertDialogTrigger>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                    <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
-                                                        <AlertDialogHeader>
-                                                            <AlertDialogTitle>Delete Record?</AlertDialogTitle>
-                                                            <AlertDialogDescription className="text-slate-400">
-                                                                This action cannot be undone. This will permanently delete the procurement record.
-                                                            </AlertDialogDescription>
-                                                        </AlertDialogHeader>
-                                                        <AlertDialogFooter>
-                                                            <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">Cancel</AlertDialogCancel>
-                                                            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">Delete</AlertDialogAction>
-                                                        </AlertDialogFooter>
-                                                    </AlertDialogContent>
-                                                </AlertDialog>
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
+                                                            <AlertDialogHeader>
+                                                                <AlertDialogTitle>Delete Record?</AlertDialogTitle>
+                                                                <AlertDialogDescription className="text-slate-400">
+                                                                    This action cannot be undone. This will permanently delete the procurement record.
+                                                                </AlertDialogDescription>
+                                                            </AlertDialogHeader>
+                                                            <AlertDialogFooter>
+                                                                <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">Cancel</AlertDialogCancel>
+                                                                <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">Delete</AlertDialogAction>
+                                                            </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                    </AlertDialog>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -670,8 +1005,8 @@ const ProcurementList: React.FC = () => {
                                     <Label className="text-slate-300">PR Number</Label>
                                     <Input
                                         value={editingProcurement.prNumber}
-                                        onChange={(e) => setEditingProcurement({ ...editingProcurement, prNumber: e.target.value.toUpperCase() })}
-                                        className="bg-[#1e293b] border-slate-700 text-white uppercase"
+                                        onChange={(e) => setEditingProcurement({ ...editingProcurement, prNumber: e.target.value })}
+                                        className="bg-[#1e293b] border-slate-700 text-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -774,10 +1109,59 @@ const ProcurementList: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            <SelectItem value="active">Active</SelectItem>
+                                            <SelectItem value="active">Borrowed</SelectItem>
                                             <SelectItem value="archived">Archived</SelectItem>
                                         </SelectContent>
                                     </Select>
+                                </div>
+                            </div>
+
+                            {/* Borrower Information Section - Always shown */}
+                            <div className="space-y-4 border-t border-slate-800 pt-4">
+                                <Label className="text-lg font-semibold text-white">Borrower Information</Label>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-slate-300">Borrowed By</Label>
+                                        <Input
+                                            value={editingProcurement.borrowedBy || ''}
+                                            onChange={(e) => setEditingProcurement({ ...editingProcurement, borrowedBy: e.target.value })}
+                                            className="bg-[#1e293b] border-slate-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                            placeholder="Enter name"
+                                            disabled={editingProcurement.status === 'archived'}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-slate-300">Division</Label>
+                                        <Input
+                                            value={editingProcurement.division || ''}
+                                            onChange={(e) => setEditingProcurement({ ...editingProcurement, division: e.target.value })}
+                                            className="bg-[#1e293b] border-slate-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                            placeholder="Enter division"
+                                            disabled={editingProcurement.status === 'archived'}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-slate-300">Borrowed Date</Label>
+                                        <Input
+                                            type="text"
+                                            value={editingProcurement.borrowedDate ? format(new Date(editingProcurement.borrowedDate), 'MMMM d, yyyy') : 'Not set'}
+                                            disabled
+                                            className="bg-[#1e293b]/50 border-slate-700 text-slate-400 cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-slate-300">Return Date</Label>
+                                        <Input
+                                            type="text"
+                                            value={editingProcurement.returnDate ? format(new Date(editingProcurement.returnDate), 'MMMM d, yyyy') : 'Not set'}
+                                            disabled
+                                            className="bg-[#1e293b]/50 border-slate-700 text-slate-400 cursor-not-allowed"
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
@@ -838,8 +1222,100 @@ const ProcurementList: React.FC = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+
+            {/* Status Change Confirmation Modal */}
+            <AlertDialog open={isStatusConfirmOpen} onOpenChange={setIsStatusConfirmOpen}>
+                <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {pendingStatusChange?.newStatus === 'active'
+                                ? 'Mark as Borrowed?'
+                                : 'Mark as Available?'}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-400">
+                            {pendingStatusChange?.newStatus === 'active'
+                                ? 'You will need to enter borrower details in the next step.'
+                                : 'This will mark the file as returned and available. The return date will be automatically recorded.'}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">
+                            Close
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={proceedStatusChange}
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                            Proceed
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Borrow Edit Modal */}
+            <Dialog open={!!borrowEditModal} onOpenChange={() => setBorrowEditModal(null)}>
+                <DialogContent className="bg-[#0f172a] border-slate-800 text-white">
+                    <DialogHeader>
+                        <DialogTitle>Borrow File</DialogTitle>
+                        <DialogDescription className="text-slate-400">
+                            Enter the borrower details. The borrowed date will be automatically recorded.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="borrowedBy" className="text-slate-300">Borrowed By *</Label>
+                            <Input
+                                id="borrowedBy"
+                                value={borrowEditModal?.borrowedBy || ''}
+                                onChange={(e) => setBorrowEditModal(prev =>
+                                    prev ? { ...prev, borrowedBy: e.target.value } : null
+                                )}
+                                placeholder="Enter name"
+                                className="bg-[#1e293b] border-slate-700 text-white"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="division" className="text-slate-300">Division *</Label>
+                            <Input
+                                id="division"
+                                value={borrowEditModal?.division || ''}
+                                onChange={(e) => setBorrowEditModal(prev =>
+                                    prev ? { ...prev, division: e.target.value } : null
+                                )}
+                                placeholder="Enter division"
+                                className="bg-[#1e293b] border-slate-700 text-white"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setBorrowEditModal(null)}
+                            className="border-slate-700 text-white hover:bg-slate-800"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={saveBorrowChanges}
+                            className="bg-blue-600 hover:bg-blue-700"
+                        >
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div >
     );
 };
 
 export default ProcurementList;
+
+
+
+
+
+
+
+
+
+

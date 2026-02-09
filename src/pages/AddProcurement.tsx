@@ -271,7 +271,7 @@ const AddProcurement: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700">
-                                            <SelectItem value="active" className="text-white">Active</SelectItem>
+                                            <SelectItem value="active" className="text-white">Borrowed</SelectItem>
                                             <SelectItem value="archived" className="text-white">Archived</SelectItem>
                                         </SelectContent>
                                     </Select>
