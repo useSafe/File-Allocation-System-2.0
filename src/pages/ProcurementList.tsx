@@ -60,10 +60,7 @@ import {
     ChevronRight,
     MapPin,
     FilterX,
-    Download,
-    ArrowUpDown,
-    ArrowUp,
-    ArrowDown
+    Download
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -76,18 +73,10 @@ const ProcurementList: React.FC = () => {
 
     const [procurements, setProcurements] = useState<Procurement[]>([]);
 
-    // Location Data - NOTE: Variable names are confusing!
-    // cabinets array actually contains SHELVES (Tier 1)
-    // shelves array actually contains CABINETS (Tier 2)
-    // folders array contains FOLDERS (Tier 3)
-    const [cabinets, setCabinets] = useState<Cabinet[]>([]);
-    const [shelves, setShelves] = useState<Shelf[]>([]);
+    // Location Data - Note: cabinets table stores Shelves (Tier 1), shelves table stores Cabinets (Tier 2)
+    const [cabinets, setCabinets] = useState<Cabinet[]>([]); // These are actually Shelves (Tier 1)
+    const [shelves, setShelves] = useState<Shelf[]>([]); // These are actually Cabinets (Tier 2)
     const [folders, setFolders] = useState<Folder[]>([]);
-
-    // For clarity
-    const actualShelves = cabinets;
-    const actualCabinets = shelves;
-    const actualFolders = folders;
 
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -99,163 +88,31 @@ const ProcurementList: React.FC = () => {
     const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
 
     // Dynamic Edit Form Data
-    const [editAvailableCabinets, setEditAvailableCabinets] = useState<Shelf[]>([]);
+    const [editAvailableShelves, setEditAvailableShelves] = useState<Shelf[]>([]);
     const [editAvailableFolders, setEditAvailableFolders] = useState<Folder[]>([]);
 
     // Cascading Filter Data
-    const [filterAvailableCabinets, setFilterAvailableCabinets] = useState<Shelf[]>([]);
+    const [filterAvailableShelves, setFilterAvailableShelves] = useState<Shelf[]>([]);
     const [filterAvailableFolders, setFilterAvailableFolders] = useState<Folder[]>([]);
 
-    // Filters
+    // Filters (existing)
     const [filters, setFilters] = useState<ProcurementFilters>({
         search: '',
-        cabinetId: '',  // This actually filters by Shelf
-        shelfId: '',    // This actually filters by Cabinet
+        cabinetId: '',
+        shelfId: '',
         folderId: folderIdFromUrl || '',
-        status: '',
+        status: '', // kept for backward compatibility, not used for multi-select
         monthYear: '',
         urgencyLevel: '',
     });
 
-    // Multi-select status filter
+    // New: multi-select status filter state (empty = all)
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
 
-    // Sorting state
-    const [sortField, setSortField] = useState<'name' | 'prNumber' | 'date' | 'stackNumber'>('date');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-
-    const itemsPerPage = 20;
-
-    // Stack number calculation helper
-    const calculateStackNumbers = (procurements: Procurement[], folderId: string): Map<string, number> => {
-        const availableInFolder = procurements
-            .filter(p => p.folderId === folderId && p.status === 'archived')
-            .sort((a, b) => {
-                if (a.stackNumber && b.stackNumber) {
-                    return a.stackNumber - b.stackNumber;
-                }
-                return new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime();
-            });
-
-        const stackMap = new Map<string, number>();
-        availableInFolder.forEach((p, index) => {
-            stackMap.set(p.id, index + 1);
-        });
-
-        return stackMap;
-    };
-
-    // Update stack numbers for all files in a folder
-    const updateStackNumbersForFolder = async (folderId: string) => {
-        const stackMap = calculateStackNumbers(procurements, folderId);
-
-        for (const [procId, stackNum] of stackMap.entries()) {
-            await updateProcurement(procId, { stackNumber: stackNum });
-        }
-
-        const borrowedInFolder = procurements
-            .filter(p => p.folderId === folderId && p.status === 'active');
-        for (const proc of borrowedInFolder) {
-            if (proc.stackNumber !== undefined) {
-                await updateProcurement(proc.id, { stackNumber: undefined });
-            }
-        }
-    };
-
-    // Status change confirmation
-    const [pendingStatusChange, setPendingStatusChange] = useState<{
-        procurement: Procurement;
-        newStatus: ProcurementStatus;
-    } | null>(null);
-    const [isStatusConfirmOpen, setIsStatusConfirmOpen] = useState(false);
-
-    // Borrow edit modal
-    const [borrowEditModal, setBorrowEditModal] = useState<{
-        procurement: Procurement;
-        borrowedBy: string;
-        division: string;
-    } | null>(null);
-
-    // Helper functions for status
-    const getStatusLabel = (status: ProcurementStatus): string => {
-        return status === 'active' ? 'Borrowed' : 'Archived';
-    };
-
-    const getStatusColor = (status: ProcurementStatus): string => {
-        return status === 'active'
-            ? 'bg-orange-500/10 text-orange-500 border-orange-500/20'
-            : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
-    };
-
-    // Status change workflow
-    const handleStatusChange = (procurement: Procurement, newStatus: ProcurementStatus) => {
-        setPendingStatusChange({ procurement, newStatus });
-        setIsStatusConfirmOpen(true);
-    };
-
-    const proceedStatusChange = () => {
-        if (!pendingStatusChange) return;
-
-        const { procurement, newStatus } = pendingStatusChange;
-
-        if (newStatus === 'active') {
-            setBorrowEditModal({
-                procurement,
-                borrowedBy: procurement.borrowedBy || '',
-                division: procurement.division || ''
-            });
-            setIsStatusConfirmOpen(false);
-            setPendingStatusChange(null);
-        } else {
-            confirmReturnFile(procurement);
-        }
-    };
-
-    const saveBorrowChanges = async () => {
-        if (!borrowEditModal) return;
-
-        const { procurement, borrowedBy, division } = borrowEditModal;
-
-        if (!borrowedBy || !division) {
-            toast.error('Please fill in all required fields');
-            return;
-        }
-
-        try {
-            await updateProcurement(procurement.id, {
-                status: 'active',
-                borrowedBy,
-                division,
-                borrowedDate: new Date().toISOString()
-            });
-
-            await updateStackNumbersForFolder(procurement.folderId);
-
-            setBorrowEditModal(null);
-            toast.success('File marked as borrowed');
-        } catch (error) {
-            toast.error('Failed to update file status');
-        }
-    };
-
-    const confirmReturnFile = async (procurement: Procurement) => {
-        try {
-            await updateProcurement(procurement.id, {
-                status: 'archived',
-                returnDate: new Date().toISOString()
-            });
-
-            await updateStackNumbersForFolder(procurement.folderId);
-
-            setIsStatusConfirmOpen(false);
-            setPendingStatusChange(null);
-            toast.success('File returned and marked as archived');
-        } catch (error) {
-            toast.error('Failed to return file');
-        }
-    };
+    const itemsPerPage = 10;
 
     useEffect(() => {
+        // Subscribe to real-time updates
         const unsubProcurements = onProcurementsChange(setProcurements);
         const unsubCabinets = onCabinetsChange(setCabinets);
         const unsubShelves = onShelvesChange(setShelves);
@@ -271,71 +128,61 @@ const ProcurementList: React.FC = () => {
 
     useEffect(() => {
         if (folderIdFromUrl) {
-            const folder = actualFolders.find(f => f.id === folderIdFromUrl);
+            const folder = folders.find(f => f.id === folderIdFromUrl);
             if (folder) {
-                const cabinet = actualCabinets.find(c => c.id === folder.shelfId);
-                if (cabinet) {
+                const shelf = shelves.find(s => s.id === folder.shelfId);
+                if (shelf) {
                     setFilters(prev => ({
                         ...prev,
-                        cabinetId: cabinet.cabinetId,  // Shelf ID
-                        shelfId: folder.shelfId,        // Cabinet ID
+                        cabinetId: shelf.cabinetId,
+                        shelfId: folder.shelfId,
                         folderId: folderIdFromUrl
                     }));
                 }
             }
         }
-    }, [folderIdFromUrl, actualFolders, actualCabinets]);
-
-    // Read search parameter from URL
-    useEffect(() => {
-        const searchFromUrl = searchParams.get('search');
-        if (searchFromUrl) {
-            setFilters(prev => ({
-                ...prev,
-                search: searchFromUrl
-            }));
-        }
-    }, [searchParams]);
+    }, [folderIdFromUrl, folders, shelves]);
 
     // Update edit form cascading dropdowns
     useEffect(() => {
         if (editingProcurement && editingProcurement.cabinetId) {
-            // cabinetId stores shelf, so filter cabinets by this shelf
-            setEditAvailableCabinets(actualCabinets.filter(c => c.cabinetId === editingProcurement.cabinetId));
+            setEditAvailableShelves(shelves.filter(s => s.cabinetId === editingProcurement.cabinetId));
         } else {
-            setEditAvailableCabinets([]);
+            setEditAvailableShelves([]);
         }
-    }, [editingProcurement?.cabinetId, actualCabinets]);
+    }, [editingProcurement?.cabinetId, shelves]);
 
     useEffect(() => {
         if (editingProcurement && editingProcurement.shelfId) {
-            // shelfId stores cabinet, so filter folders by this cabinet
-            setEditAvailableFolders(actualFolders.filter(f => f.shelfId === editingProcurement.shelfId));
+            setEditAvailableFolders(folders.filter(f => f.shelfId === editingProcurement.shelfId));
         } else {
             setEditAvailableFolders([]);
         }
-    }, [editingProcurement?.shelfId, actualFolders]);
+    }, [editingProcurement?.shelfId, folders]);
 
     // Update filter cascading dropdowns
     useEffect(() => {
         if (filters.cabinetId) {
-            // cabinetId is shelf, filter cabinets
-            setFilterAvailableCabinets(actualCabinets.filter(c => c.cabinetId === filters.cabinetId));
+            setFilterAvailableShelves(shelves.filter(s => s.cabinetId === filters.cabinetId));
         } else {
-            setFilterAvailableCabinets([]);
+            setFilterAvailableShelves([]);
         }
-    }, [filters.cabinetId, actualCabinets]);
+    }, [filters.cabinetId, shelves]);
 
     useEffect(() => {
         if (filters.shelfId) {
-            // shelfId is cabinet, filter folders
-            setFilterAvailableFolders(actualFolders.filter(f => f.shelfId === filters.shelfId));
+            setFilterAvailableFolders(folders.filter(f => f.shelfId === filters.shelfId));
         } else {
             setFilterAvailableFolders([]);
         }
-    }, [filters.shelfId, actualFolders]);
+    }, [filters.shelfId, folders]);
 
-    const statusOptions: ProcurementStatus[] = ['active', 'archived'];
+    // build status options based on current procurements (fall back to common ones)
+    const statusOptions = Array.from(new Set([
+        ...procurements.map(p => p.status),
+        'active',
+        'archived'
+    ])).filter(Boolean) as string[];
 
     const toggleStatusFilter = (status: string) => {
         setStatusFilters(prev => {
@@ -353,27 +200,12 @@ const ProcurementList: React.FC = () => {
         const matchesShelf = !filters.shelfId || filters.shelfId === 'all_shelves' || procurement.shelfId === filters.shelfId;
         const matchesFolder = !filters.folderId || filters.folderId === 'all_folders' || procurement.folderId === filters.folderId;
 
+        // New: multi-select status filtering (empty -> all)
         const matchesStatus = statusFilters.length === 0 || statusFilters.includes(procurement.status);
 
-        const matchesUrgency = !filters.urgencyLevel || filters.urgencyLevel === 'all_urgency' || procurement.urgencyLevel === (filters.urgencyLevel as UrgencyLevel);
+        const matchesUrgency = !filters.urgencyLevel || filters.urgencyLevel === 'all_urgency' || procurement.urgencyLevel === filters.urgencyLevel;
 
         return matchesSearch && matchesCabinet && matchesShelf && matchesFolder && matchesStatus && matchesUrgency;
-    }).sort((a, b) => {
-        let comparison = 0;
-
-        if (sortField === 'name') {
-            comparison = a.description.localeCompare(b.description);
-        } else if (sortField === 'prNumber') {
-            comparison = a.prNumber.localeCompare(b.prNumber);
-        } else if (sortField === 'date') {
-            comparison = new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime();
-        } else if (sortField === 'stackNumber') {
-            const aStack = a.stackNumber || 999;
-            const bStack = b.stackNumber || 999;
-            comparison = aStack - bStack;
-        }
-
-        return sortDirection === 'asc' ? comparison : -comparison;
     });
 
     const totalPages = Math.ceil(filteredProcurements.length / itemsPerPage);
@@ -381,6 +213,14 @@ const ProcurementList: React.FC = () => {
         (currentPage - 1) * itemsPerPage,
         currentPage * itemsPerPage
     );
+
+    const getStatusColor = (status: ProcurementStatus) => {
+        switch (status) {
+            case 'active': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+            case 'archived': return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
+            default: return 'bg-slate-500/10 text-slate-500';
+        }
+    };
 
     const clearFilters = () => {
         setFilters({
@@ -392,9 +232,8 @@ const ProcurementList: React.FC = () => {
             monthYear: '',
             urgencyLevel: '',
         });
+        // clear multi-select status
         setStatusFilters([]);
-        setSortField('date');
-        setSortDirection('asc');
         setCurrentPage(1);
     };
 
@@ -421,19 +260,20 @@ const ProcurementList: React.FC = () => {
         }
     };
 
-    // Location string: Shelf-Cabinet-Folder
+    // Updated to show: Shelf-Cabinet-Folder (S1-C1-F1)
     const getLocationString = (p: Procurement) => {
-        const shelf = actualShelves.find(s => s.id === p.cabinetId)?.code || '?';
-        const cabinet = actualCabinets.find(c => c.id === p.shelfId)?.code || '?';
-        const folder = actualFolders.find(f => f.id === p.folderId)?.code || '?';
+        const shelf = cabinets.find(c => c.id === p.cabinetId)?.code || '?'; // cabinetId points to Shelf (Tier 1)
+        const cabinet = shelves.find(s => s.id === p.shelfId)?.code || '?'; // shelfId points to Cabinet (Tier 2)
+        const folder = folders.find(f => f.id === p.folderId)?.code || '?'; // folderId points to Folder (Tier 3)
         return `${shelf}-${cabinet}-${folder}`;
     };
 
+    // SIMPLIFIED EXCEL EXPORT FUNCTION
     const handleExportExcel = () => {
         const exportData = filteredProcurements.map(p => {
-            const shelf = actualShelves.find(s => s.id === p.cabinetId);
-            const cabinet = actualCabinets.find(c => c.id === p.shelfId);
-            const folder = actualFolders.find(f => f.id === p.folderId);
+            const shelf = cabinets.find(c => c.id === p.cabinetId);
+            const cabinet = shelves.find(s => s.id === p.shelfId);
+            const folder = folders.find(f => f.id === p.folderId);
 
             return {
                 'PR Number': p.prNumber,
@@ -442,7 +282,7 @@ const ProcurementList: React.FC = () => {
                 'Shelf': shelf?.name || '',
                 'Cabinet': cabinet?.name || '',
                 'Folder': folder?.name || '',
-                'Status': getStatusLabel(p.status),
+                'Status': p.status.charAt(0).toUpperCase() + p.status.slice(1),
                 'Urgency': p.urgencyLevel,
                 'Date Added': format(new Date(p.dateAdded), 'MMM d, yyyy'),
                 'Tags': p.tags.join(', '),
@@ -570,11 +410,11 @@ const ProcurementList: React.FC = () => {
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.cabinetId}
-                                    onValueChange={(value) => setFilters({
-                                        ...filters,
+                                    onValueChange={(value) => setFilters({ 
+                                        ...filters, 
                                         cabinetId: value,
-                                        shelfId: '',
-                                        folderId: ''
+                                        shelfId: '', // Reset child
+                                        folderId: '' // Reset child
                                     })}
                                 >
                                     <SelectTrigger className="w-[150px] border-none bg-transparent text-white focus:ring-0">
@@ -582,8 +422,8 @@ const ProcurementList: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
                                         <SelectItem value="all_cabinets">All Shelves</SelectItem>
-                                        {actualShelves.map((shelf) => (
-                                            <SelectItem key={shelf.id} value={shelf.id}>{shelf.code} - {shelf.name}</SelectItem>
+                                        {cabinets.map((c) => (
+                                            <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -593,10 +433,10 @@ const ProcurementList: React.FC = () => {
                             <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
                                 <Select
                                     value={filters.shelfId}
-                                    onValueChange={(value) => setFilters({
-                                        ...filters,
+                                    onValueChange={(value) => setFilters({ 
+                                        ...filters, 
                                         shelfId: value,
-                                        folderId: ''
+                                        folderId: '' // Reset child
                                     })}
                                     disabled={!filters.cabinetId}
                                 >
@@ -605,8 +445,8 @@ const ProcurementList: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
                                         <SelectItem value="all_shelves">All Cabinets</SelectItem>
-                                        {filterAvailableCabinets.map((cabinet) => (
-                                            <SelectItem key={cabinet.id} value={cabinet.id}>{cabinet.code} - {cabinet.name}</SelectItem>
+                                        {filterAvailableShelves.map((s) => (
+                                            <SelectItem key={s.id} value={s.id}>{s.code} - {s.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -624,8 +464,8 @@ const ProcurementList: React.FC = () => {
                                     </SelectTrigger>
                                     <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
                                         <SelectItem value="all_folders">All Folders</SelectItem>
-                                        {filterAvailableFolders.map((folder) => (
-                                            <SelectItem key={folder.id} value={folder.id}>{folder.code} - {folder.name}</SelectItem>
+                                        {filterAvailableFolders.map((f) => (
+                                            <SelectItem key={f.id} value={f.id}>{f.code} - {f.name}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -659,37 +499,13 @@ const ProcurementList: React.FC = () => {
                                                         onClick={() => toggleStatusFilter(status)}
                                                         className="text-sm text-slate-200 text-left w-full"
                                                     >
-                                                        {getStatusLabel(status)}
+                                                        {status.charAt(0).toUpperCase() + status.slice(1)}
                                                     </button>
                                                 </div>
                                             ))}
                                         </div>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
-                            </div>
-
-                            {/* SORT controls */}
-                            <div className="flex items-center gap-2 bg-[#1e293b] rounded-md border border-slate-700 p-1">
-                                <Select value={sortField} onValueChange={(value) => setSortField(value as 'name' | 'prNumber' | 'date' | 'stackNumber')}>
-                                    <SelectTrigger className="w-[150px] border-none bg-transparent text-white focus:ring-0">
-                                        <SelectValue placeholder="Sort by" />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                        <SelectItem value="name">Name</SelectItem>
-                                        <SelectItem value="prNumber">PR Number</SelectItem>
-                                        <SelectItem value="date">Date Added</SelectItem>
-                                        <SelectItem value="stackNumber">Stack Number</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
-                                    className="h-8 w-8 text-slate-400 hover:text-white"
-                                    title={sortDirection === 'asc' ? 'Ascending' : 'Descending'}
-                                >
-                                    {sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-                                </Button>
                             </div>
 
                             <Button
@@ -719,8 +535,6 @@ const ProcurementList: React.FC = () => {
                                     <TableHead className="text-slate-300">PR Number</TableHead>
                                     <TableHead className="text-slate-300">Description</TableHead>
                                     <TableHead className="text-slate-300">Location</TableHead>
-                                    <TableHead className="text-center text-slate-300">Stack</TableHead>
-                                    <TableHead className="text-slate-300">Folder</TableHead>
                                     <TableHead className="text-slate-300">Status</TableHead>
                                     <TableHead className="text-slate-300">Date</TableHead>
                                     <TableHead className="text-right text-slate-300">Actions</TableHead>
@@ -729,7 +543,7 @@ const ProcurementList: React.FC = () => {
                             <TableBody>
                                 {paginatedProcurements.length === 0 ? (
                                     <TableRow className="border-slate-800">
-                                        <TableCell colSpan={10} className="h-24 text-center text-slate-500">
+                                        <TableCell colSpan={7} className="h-24 text-center text-slate-500">
                                             No records found.
                                         </TableCell>
                                     </TableRow>
@@ -757,81 +571,54 @@ const ProcurementList: React.FC = () => {
                                                     </span>
                                                 </div>
                                             </TableCell>
-                                            <TableCell className="text-center">
-                                                <span className="text-slate-400 text-sm font-mono">
-                                                    {procurement.status === 'archived' && procurement.stackNumber
-                                                        ? `↕${procurement.stackNumber}`
-                                                        : '-'}
+                                            <TableCell>
+                                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(procurement.status)}`}>
+                                                    {procurement.status.charAt(0).toUpperCase() + procurement.status.slice(1)}
                                                 </span>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-2">
-                                                    <div
-                                                        className="h-6 w-6 rounded-md border border-slate-600 flex-shrink-0"
-                                                        style={{
-                                                            backgroundColor: actualFolders.find(f => f.id === procurement.folderId)?.color || '#FF6B6B'
-                                                        }}
-                                                    />
-                                                    <span className="text-slate-400 text-sm font-mono">
-                                                        {actualFolders.find(f => f.id === procurement.folderId)?.code || '?'}
-                                                    </span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <Select
-                                                    value={procurement.status}
-                                                    onValueChange={(value) => handleStatusChange(procurement, value as ProcurementStatus)}
-                                                >
-                                                    <SelectTrigger className={`w-[130px] border ${getStatusColor(procurement.status)}`}>
-                                                        <SelectValue>
-                                                            {getStatusLabel(procurement.status)}
-                                                        </SelectValue>
-                                                    </SelectTrigger>
-                                                    <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                                        <SelectItem value="active">Borrowed</SelectItem>
-                                                        <SelectItem value="archived">Archived</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
                                             </TableCell>
                                             <TableCell className="text-slate-400">
                                                 {format(new Date(procurement.dateAdded), 'MMM d, yyyy')}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <div className="flex justify-end gap-2">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleEdit(procurement)}
-                                                        className="h-8 bg-blue-600/10 border border-blue-600/20 text-blue-500 hover:bg-blue-600/20 hover:text-blue-400"
-                                                    >
-                                                        <Pencil className="h-4 w-4 mr-1" />
-                                                        Edit
-                                                    </Button>
-                                                    <AlertDialog>
-                                                        <AlertDialogTrigger asChild>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                onClick={() => setDeleteId(procurement.id)}
-                                                                className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
+                                                <AlertDialog>
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
+                                                                <MoreVertical className="h-4 w-4" />
                                                             </Button>
-                                                        </AlertDialogTrigger>
-                                                        <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
-                                                            <AlertDialogHeader>
-                                                                <AlertDialogTitle>Delete Record?</AlertDialogTitle>
-                                                                <AlertDialogDescription className="text-slate-400">
-                                                                    This action cannot be undone. This will permanently delete the procurement record.
-                                                                </AlertDialogDescription>
-                                                            </AlertDialogHeader>
-                                                            <AlertDialogFooter>
-                                                                <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">Cancel</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">Delete</AlertDialogAction>
-                                                            </AlertDialogFooter>
-                                                        </AlertDialogContent>
-                                                    </AlertDialog>
-                                                </div>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end" className="bg-[#1e293b] border-slate-700 text-white">
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleEdit(procurement)}
+                                                                className="cursor-pointer focus:bg-slate-700"
+                                                            >
+                                                                <Pencil className="mr-2 h-4 w-4" />
+                                                                Edit
+                                                            </DropdownMenuItem>
+                                                            <AlertDialogTrigger asChild>
+                                                                <DropdownMenuItem
+                                                                    className="text-red-500 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
+                                                                    onClick={() => setDeleteId(procurement.id)}
+                                                                >
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                    Delete
+                                                                </DropdownMenuItem>
+                                                            </AlertDialogTrigger>
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                    <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Delete Record?</AlertDialogTitle>
+                                                            <AlertDialogDescription className="text-slate-400">
+                                                                This action cannot be undone. This will permanently delete the procurement record.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">Delete</AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -920,16 +707,16 @@ const ProcurementList: React.FC = () => {
                                         onValueChange={(val) => setEditingProcurement({
                                             ...editingProcurement,
                                             cabinetId: val,
-                                            shelfId: '',
-                                            folderId: ''
+                                            shelfId: '', // Reset child
+                                            folderId: '' // Reset child
                                         })}
                                     >
                                         <SelectTrigger className="bg-[#1e293b] border-slate-700 text-white">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            {actualShelves.map((shelf) => (
-                                                <SelectItem key={shelf.id} value={shelf.id}>{shelf.code} - {shelf.name}</SelectItem>
+                                            {cabinets.map((c) => (
+                                                <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -942,7 +729,7 @@ const ProcurementList: React.FC = () => {
                                         onValueChange={(val) => setEditingProcurement({
                                             ...editingProcurement,
                                             shelfId: val,
-                                            folderId: ''
+                                            folderId: '' // Reset child
                                         })}
                                         disabled={!editingProcurement.cabinetId}
                                     >
@@ -950,8 +737,8 @@ const ProcurementList: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            {editAvailableCabinets.map((cabinet) => (
-                                                <SelectItem key={cabinet.id} value={cabinet.id}>{cabinet.code} - {cabinet.name}</SelectItem>
+                                            {editAvailableShelves.map((s) => (
+                                                <SelectItem key={s.id} value={s.id}>{s.code} - {s.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -968,8 +755,8 @@ const ProcurementList: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            {editAvailableFolders.map((folder) => (
-                                                <SelectItem key={folder.id} value={folder.id}>{folder.code} - {folder.name}</SelectItem>
+                                            {editAvailableFolders.map((f) => (
+                                                <SelectItem key={f.id} value={f.id}>{f.code} - {f.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -987,59 +774,10 @@ const ProcurementList: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700 text-white">
-                                            <SelectItem value="active">Borrowed</SelectItem>
+                                            <SelectItem value="active">Active</SelectItem>
                                             <SelectItem value="archived">Archived</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                </div>
-                            </div>
-
-                            {/* Borrower Information Section */}
-                            <div className="space-y-4 border-t border-slate-800 pt-4">
-                                <Label className="text-lg font-semibold text-white">Borrower Information</Label>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-slate-300">Borrowed By</Label>
-                                        <Input
-                                            value={editingProcurement.borrowedBy || ''}
-                                            onChange={(e) => setEditingProcurement({ ...editingProcurement, borrowedBy: e.target.value })}
-                                            className="bg-[#1e293b] border-slate-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                                            placeholder="Enter name"
-                                            disabled={editingProcurement.status === 'archived'}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-slate-300">Division</Label>
-                                        <Input
-                                            value={editingProcurement.division || ''}
-                                            onChange={(e) => setEditingProcurement({ ...editingProcurement, division: e.target.value })}
-                                            className="bg-[#1e293b] border-slate-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                                            placeholder="Enter division"
-                                            disabled={editingProcurement.status === 'archived'}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-slate-300">Borrowed Date</Label>
-                                        <Input
-                                            type="text"
-                                            value={editingProcurement.borrowedDate ? format(new Date(editingProcurement.borrowedDate), 'MMMM d, yyyy') : 'Not set'}
-                                            disabled
-                                            className="bg-[#1e293b]/50 border-slate-700 text-slate-400 cursor-not-allowed"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-slate-300">Return Date</Label>
-                                        <Input
-                                            type="text"
-                                            value={editingProcurement.returnDate ? format(new Date(editingProcurement.returnDate), 'MMMM d, yyyy') : 'Not set'}
-                                            disabled
-                                            className="bg-[#1e293b]/50 border-slate-700 text-slate-400 cursor-not-allowed"
-                                        />
-                                    </div>
                                 </div>
                             </div>
 
@@ -1095,88 +833,6 @@ const ProcurementList: React.FC = () => {
                             Cancel
                         </Button>
                         <Button onClick={handleSaveEdit} className="bg-blue-600 hover:bg-blue-700">
-                            Save Changes
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Status Change Confirmation Modal */}
-            <AlertDialog open={isStatusConfirmOpen} onOpenChange={setIsStatusConfirmOpen}>
-                <AlertDialogContent className="bg-[#1e293b] border-slate-800 text-white">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>
-                            {pendingStatusChange?.newStatus === 'active'
-                                ? 'Mark as Borrowed?'
-                                : 'Mark as Available?'}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription className="text-slate-400">
-                            {pendingStatusChange?.newStatus === 'active'
-                                ? 'You will need to enter borrower details in the next step.'
-                                : 'This will mark the file as returned and available. The return date will be automatically recorded.'}
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel className="bg-transparent border-slate-700 text-white hover:bg-slate-800">
-                            Close
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={proceedStatusChange}
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                            Proceed
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            {/* Borrow Edit Modal */}
-            <Dialog open={!!borrowEditModal} onOpenChange={() => setBorrowEditModal(null)}>
-                <DialogContent className="bg-[#0f172a] border-slate-800 text-white">
-                    <DialogHeader>
-                        <DialogTitle>Borrow File</DialogTitle>
-                        <DialogDescription className="text-slate-400">
-                            Enter the borrower details. The borrowed date will be automatically recorded.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="borrowedBy" className="text-slate-300">Borrowed By *</Label>
-                            <Input
-                                id="borrowedBy"
-                                value={borrowEditModal?.borrowedBy || ''}
-                                onChange={(e) => setBorrowEditModal(prev =>
-                                    prev ? { ...prev, borrowedBy: e.target.value } : null
-                                )}
-                                placeholder="Enter name"
-                                className="bg-[#1e293b] border-slate-700 text-white"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="division" className="text-slate-300">Division *</Label>
-                            <Input
-                                id="division"
-                                value={borrowEditModal?.division || ''}
-                                onChange={(e) => setBorrowEditModal(prev =>
-                                    prev ? { ...prev, division: e.target.value } : null
-                                )}
-                                placeholder="Enter division"
-                                className="bg-[#1e293b] border-slate-700 text-white"
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setBorrowEditModal(null)}
-                            className="border-slate-700 text-white hover:bg-slate-800"
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={saveBorrowChanges}
-                            className="bg-blue-600 hover:bg-blue-700"
-                        >
                             Save Changes
                         </Button>
                     </DialogFooter>

@@ -13,9 +13,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { addProcurement, updateProcurement } from '@/lib/storage';
-import { useData } from '@/contexts/DataContext';
-import { Cabinet, Shelf, Folder, ProcurementStatus, Procurement } from '@/types/procurement';
+import { addProcurement, onCabinetsChange, onShelvesChange, onFoldersChange } from '@/lib/storage';
+import { Cabinet, Shelf, Folder, ProcurementStatus } from '@/types/procurement';
 import { toast } from 'sonner';
 import { Loader2, Save, CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -31,63 +30,69 @@ const AddProcurement: React.FC = () => {
     const { user } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     
-    // Get data from context
-    // NOTE: Variable names are confusing - they're swapped!
+    // NOTE: These variable names are confusing due to database design
     // cabinets array actually contains SHELVES (Tier 1)
     // shelves array actually contains CABINETS (Tier 2)
     // folders array contains FOLDERS (Tier 3)
-    const { cabinets, shelves, folders, procurements } = useData();
-
-    // For clarity, let's create properly named variables
-    const actualShelves = cabinets;  // cabinets table stores Shelves
-    const actualCabinets = shelves;  // shelves table stores Cabinets
-    const actualFolders = folders;   // folders table stores Folders
+    const [cabinets, setCabinets] = useState<Cabinet[]>([]);
+    const [shelves, setShelves] = useState<Shelf[]>([]);
+    const [folders, setFolders] = useState<Folder[]>([]);
 
     // Filtered location options based on selection
-    const [availableCabinets, setAvailableCabinets] = useState<Shelf[]>([]);
+    const [availableShelves, setAvailableShelves] = useState<Shelf[]>([]);
     const [availableFolders, setAvailableFolders] = useState<Folder[]>([]);
 
     // Form State
-    // NOTE: These IDs are also confusing due to database design
-    // cabinetId actually stores the selected SHELF's ID
-    // shelfId actually stores the selected CABINET's ID
-    // folderId stores the selected FOLDER's ID
     const [prNumber, setPrNumber] = useState('');
     const [description, setDescription] = useState('');
-    const [selectedShelfId, setSelectedShelfId] = useState('');  // This is cabinetId in DB
-    const [selectedCabinetId, setSelectedCabinetId] = useState('');  // This is shelfId in DB
-    const [selectedFolderId, setSelectedFolderId] = useState('');  // This is folderId in DB
+    const [cabinetId, setCabinetId] = useState('');
+    const [shelfId, setShelfId] = useState('');
+    const [folderId, setFolderId] = useState('');
     const [status, setStatus] = useState<ProcurementStatus>('active');
     const [date, setDate] = useState<Date | undefined>(new Date());
 
-    // Update available cabinets when shelf changes
     useEffect(() => {
-        if (selectedShelfId) {
-            // Filter cabinets that belong to the selected shelf
-            // actualCabinets have a cabinetId field that should match our selectedShelfId
-            setAvailableCabinets(actualCabinets.filter(c => c.cabinetId === selectedShelfId));
-            setSelectedCabinetId('');
-            setSelectedFolderId('');
-        } else {
-            setAvailableCabinets([]);
-        }
-    }, [selectedShelfId, actualCabinets]);
+        // Subscribe to real-time updates
+        const unsubCabinets = onCabinetsChange(setCabinets);
+        const unsubShelves = onShelvesChange(setShelves);
+        const unsubFolders = onFoldersChange(setFolders);
 
-    // Update available folders when cabinet changes
+        return () => {
+            unsubCabinets();
+            unsubShelves();
+            unsubFolders();
+        };
+    }, []);
+
+    // Update available shelves (cabinets) when cabinet (shelf) changes
     useEffect(() => {
-        if (selectedCabinetId) {
-            // Filter folders that belong to the selected cabinet
-            // actualFolders have a shelfId field that should match our selectedCabinetId
-            setAvailableFolders(actualFolders.filter(f => f.shelfId === selectedCabinetId));
-            setSelectedFolderId('');
+        if (cabinetId) {
+            // cabinetId is actually the selected SHELF
+            // shelves array contains CABINETS
+            // Filter cabinets that belong to this shelf
+            setAvailableShelves(shelves.filter(s => s.cabinetId === cabinetId));
+            setShelfId('');
+            setFolderId('');
+        } else {
+            setAvailableShelves([]);
+        }
+    }, [cabinetId, shelves]);
+
+    // Update available folders when shelf (cabinet) changes
+    useEffect(() => {
+        if (shelfId) {
+            // shelfId is actually the selected CABINET
+            // Filter folders that belong to this cabinet
+            setAvailableFolders(folders.filter(f => f.shelfId === shelfId));
+            setFolderId('');
         } else {
             setAvailableFolders([]);
         }
-    }, [selectedCabinetId, actualFolders]);
+    }, [shelfId, folders]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!prNumber || !description || !selectedShelfId || !selectedCabinetId || !selectedFolderId) {
+        if (!prNumber || !description || !cabinetId || !shelfId || !folderId) {
             toast.error('Please fill in all required fields');
             return;
         }
@@ -98,31 +103,20 @@ const AddProcurement: React.FC = () => {
             const procurementData: any = {
                 prNumber,
                 description,
-                // Map our clear variable names to the confusing DB field names
-                cabinetId: selectedShelfId,      // DB's cabinetId stores shelf
-                shelfId: selectedCabinetId,       // DB's shelfId stores cabinet
-                folderId: selectedFolderId,       // This one is correct
+                cabinetId,  // This stores the selected SHELF's ID
+                shelfId,    // This stores the selected CABINET's ID
+                folderId,   // This stores the selected FOLDER's ID
                 status,
                 urgencyLevel: 'medium',
                 dateAdded: date ? date.toISOString() : new Date().toISOString(),
                 tags: [],
             };
 
-            const newProcurement = await addProcurement(
+            await addProcurement(
                 procurementData,
                 user?.email || 'unknown@example.com',
                 user?.name || 'Unknown User'
             );
-
-            // If the file is archived, calculate and assign stack number
-            if (status === 'archived') {
-                const filesInFolder = procurements
-                    .filter(p => p.folderId === selectedFolderId && p.status === 'archived')
-                    .sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
-
-                const stackNumber = filesInFolder.length + 1;
-                await updateProcurement(newProcurement.id, { stackNumber });
-            }
 
             toast.success('File record added successfully');
             navigate('/dashboard');
@@ -150,6 +144,7 @@ const AddProcurement: React.FC = () => {
 
             <form onSubmit={handleSubmit}>
                 <div className="grid gap-6 lg:grid-cols-1">
+                    {/* Main Column */}
                     <div className="space-y-6">
                         <Card className="border-none bg-[#0f172a] shadow-lg">
                             <CardContent className="p-6 space-y-6">
@@ -217,56 +212,51 @@ const AddProcurement: React.FC = () => {
                                 </div>
 
                                 <div className="grid gap-4 md:grid-cols-3">
+                                    {/* SHELF DROPDOWN (stores in cabinetId) */}
                                     <div className="space-y-2">
                                         <Label className="text-slate-300">Shelf *</Label>
-                                        <Select value={selectedShelfId} onValueChange={setSelectedShelfId}>
+                                        <Select value={cabinetId} onValueChange={setCabinetId}>
                                             <SelectTrigger className="bg-[#1e293b] border-slate-700 text-white">
                                                 <SelectValue placeholder="Select shelf" />
                                             </SelectTrigger>
                                             <SelectContent className="bg-[#1e293b] border-slate-700">
-                                                {actualShelves.map((shelf) => (
-                                                    <SelectItem key={shelf.id} value={shelf.id} className="text-white">
-                                                        {shelf.code} - {shelf.name}
+                                                {cabinets.map((c) => (
+                                                    <SelectItem key={c.id} value={c.id} className="text-white">
+                                                        {c.code} - {c.name}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
 
+                                    {/* CABINET DROPDOWN (stores in shelfId) */}
                                     <div className="space-y-2">
                                         <Label className="text-slate-300">Cabinet *</Label>
-                                        <Select 
-                                            value={selectedCabinetId} 
-                                            onValueChange={setSelectedCabinetId} 
-                                            disabled={!selectedShelfId}
-                                        >
+                                        <Select value={shelfId} onValueChange={setShelfId} disabled={!cabinetId}>
                                             <SelectTrigger className="bg-[#1e293b] border-slate-700 text-white">
                                                 <SelectValue placeholder="Select cabinet" />
                                             </SelectTrigger>
                                             <SelectContent className="bg-[#1e293b] border-slate-700">
-                                                {availableCabinets.map((cabinet) => (
-                                                    <SelectItem key={cabinet.id} value={cabinet.id} className="text-white">
-                                                        {cabinet.code} - {cabinet.name}
+                                                {availableShelves.map((s) => (
+                                                    <SelectItem key={s.id} value={s.id} className="text-white">
+                                                        {s.code} - {s.name}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
 
+                                    {/* FOLDER DROPDOWN (stores in folderId) */}
                                     <div className="space-y-2">
                                         <Label className="text-slate-300">Folder *</Label>
-                                        <Select 
-                                            value={selectedFolderId} 
-                                            onValueChange={setSelectedFolderId} 
-                                            disabled={!selectedCabinetId}
-                                        >
+                                        <Select value={folderId} onValueChange={setFolderId} disabled={!shelfId}>
                                             <SelectTrigger className="bg-[#1e293b] border-slate-700 text-white">
                                                 <SelectValue placeholder="Select folder" />
                                             </SelectTrigger>
                                             <SelectContent className="bg-[#1e293b] border-slate-700">
-                                                {availableFolders.map((folder) => (
-                                                    <SelectItem key={folder.id} value={folder.id} className="text-white">
-                                                        {folder.code} - {folder.name}
+                                                {availableFolders.map((f) => (
+                                                    <SelectItem key={f.id} value={f.id} className="text-white">
+                                                        {f.code} - {f.name}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -281,7 +271,7 @@ const AddProcurement: React.FC = () => {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent className="bg-[#1e293b] border-slate-700">
-                                            <SelectItem value="active" className="text-white">Borrowed</SelectItem>
+                                            <SelectItem value="active" className="text-white">Active</SelectItem>
                                             <SelectItem value="archived" className="text-white">Archived</SelectItem>
                                         </SelectContent>
                                     </Select>
