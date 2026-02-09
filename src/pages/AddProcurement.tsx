@@ -44,8 +44,12 @@ const AddProcurement: React.FC = () => {
     const [folderId, setFolderId] = useState('');
     const [status, setStatus] = useState<ProcurementStatus>('archived');
     const [date, setDate] = useState<Date | undefined>(new Date());
+    
+    // Borrower Information State
+    const [borrowedBy, setBorrowedBy] = useState('');
+    const [division, setDivision] = useState('');
 
-    // Update available shelves (Tier 2 - Cabinets) when cabinet (Tier 1 - Shelf) changes
+    // Update available shelves when cabinet changes
     useEffect(() => {
         if (cabinetId) {
             setAvailableShelves(shelves.filter(s => s.cabinetId === cabinetId));
@@ -56,7 +60,7 @@ const AddProcurement: React.FC = () => {
         }
     }, [cabinetId, shelves]);
 
-    // Update available folders (Tier 3) when shelf (Tier 2 - Cabinet) changes
+    // Update available folders when shelf changes
     useEffect(() => {
         if (shelfId) {
             setAvailableFolders(folders.filter(f => f.shelfId === shelfId));
@@ -70,6 +74,12 @@ const AddProcurement: React.FC = () => {
         e.preventDefault();
         if (!prNumber || !description || !cabinetId || !shelfId || !folderId) {
             toast.error('Please fill in all required fields');
+            return;
+        }
+
+        // Validate borrower information if status is 'active' (Borrowed)
+        if (status === 'active' && (!borrowedBy || !division)) {
+            toast.error('Please fill in borrower information');
             return;
         }
 
@@ -88,6 +98,13 @@ const AddProcurement: React.FC = () => {
                 tags: [],
             };
 
+            // Add borrower information if status is active
+            if (status === 'active') {
+                procurementData.borrowedBy = borrowedBy;
+                procurementData.division = division;
+                procurementData.borrowedDate = new Date().toISOString();
+            }
+
             const newProcurement = await addProcurement(
                 procurementData,
                 user?.email || 'unknown@example.com',
@@ -96,15 +113,11 @@ const AddProcurement: React.FC = () => {
 
             // If the file is archived, calculate and assign stack number
             if (status === 'archived') {
-                // Get all archived files in the same folder
                 const filesInFolder = procurements
                     .filter(p => p.folderId === folderId && p.status === 'archived')
                     .sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
 
-                // The new file should be the last one
                 const stackNumber = filesInFolder.length + 1;
-
-                // Update the newly created file with its stack number
                 await updateProcurement(newProcurement.id, { stackNumber });
             }
 
@@ -115,6 +128,12 @@ const AddProcurement: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    // Modified PR Number handler - free text with uppercase only
+    const handlePRNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value.toUpperCase();
+        setPrNumber(value);
     };
 
     return (
@@ -128,7 +147,6 @@ const AddProcurement: React.FC = () => {
 
             <form onSubmit={handleSubmit}>
                 <div className="grid gap-6 lg:grid-cols-1">
-                    {/* Main Column */}
                     <div className="space-y-6">
                         <Card className="border-none bg-[#0f172a] shadow-lg">
                             <CardContent className="p-6 space-y-6">
@@ -139,12 +157,12 @@ const AddProcurement: React.FC = () => {
 
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label className="text-slate-300">PR Number *</Label>
+                                        <Label className="text-slate-300">PR Number (Division-Month-Year-Number) *</Label>
                                         <Input
-                                            placeholder="Enter PR Number"
+                                            placeholder="DIV-JAN-26-001"
                                             value={prNumber}
-                                            onChange={(e) => setPrNumber(e.target.value)}
-                                            className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
+                                            onChange={handlePRNumberChange}
+                                            className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500 uppercase"
                                             required
                                         />
                                     </div>
@@ -191,7 +209,7 @@ const AddProcurement: React.FC = () => {
                         <Card className="border-none bg-[#0f172a] shadow-lg">
                             <CardContent className="p-6 space-y-6">
                                 <div>
-                                    <h3 className="text-lg font-semibold text-white mb-1">Physical Location</h3>
+                                    <h3 className="text-lg font-semibold text-white mb-1">Location</h3>
                                     <p className="text-sm text-slate-400">Shelf → Cabinet → Folder</p>
                                 </div>
 
@@ -246,7 +264,7 @@ const AddProcurement: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label className="text-slate-300">Current Status</Label>
+                                    <Label className="text-slate-300">Status *</Label>
                                     <Select value={status} onValueChange={(val) => setStatus(val as ProcurementStatus)}>
                                         <SelectTrigger className="bg-[#1e293b] border-slate-700 text-white">
                                             <SelectValue />
@@ -257,6 +275,40 @@ const AddProcurement: React.FC = () => {
                                         </SelectContent>
                                     </Select>
                                 </div>
+
+                                {/* Borrower Information - Only show when status is 'active' (Borrowed) */}
+                                {status === 'active' && (
+                                    <div className="space-y-4 border-t border-slate-800 pt-4">
+                                        <div>
+                                            <h3 className="text-lg font-semibold text-white mb-1">Borrower Information</h3>
+                                            <p className="text-sm text-slate-400">Required for borrowed files</p>
+                                        </div>
+
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label className="text-slate-300">Borrowed By *</Label>
+                                                <Input
+                                                    placeholder="Enter name"
+                                                    value={borrowedBy}
+                                                    onChange={(e) => setBorrowedBy(e.target.value)}
+                                                    className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
+                                                    required={status === 'active'}
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-slate-300">Division *</Label>
+                                                <Input
+                                                    placeholder="Enter division"
+                                                    value={division}
+                                                    onChange={(e) => setDivision(e.target.value)}
+                                                    className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500"
+                                                    required={status === 'active'}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <Button
                                     type="submit"
