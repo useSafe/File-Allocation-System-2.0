@@ -13,7 +13,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { addProcurement } from '@/lib/storage';
+import { addProcurement, updateProcurement } from '@/lib/storage';
 import { useData } from '@/contexts/DataContext';
 import { Cabinet, Shelf, Folder, ProcurementStatus, Procurement } from '@/types/procurement';
 import { toast } from 'sonner';
@@ -30,10 +30,6 @@ const AddProcurement: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
-    // const [cabinets, setCabinets] = useState<Cabinet[]>([]);
-    // const [shelves, setShelves] = useState<Shelf[]>([]);
-    // const [folders, setFolders] = useState<Folder[]>([]);
-    // const [procurements, setProcurements] = useState<Procurement[]>([]);
     const { cabinets, shelves, folders, procurements } = useData();
 
     // Filtered location options based on selection
@@ -46,23 +42,8 @@ const AddProcurement: React.FC = () => {
     const [cabinetId, setCabinetId] = useState('');
     const [shelfId, setShelfId] = useState('');
     const [folderId, setFolderId] = useState('');
-    const [status, setStatus] = useState<ProcurementStatus>('active');
+    const [status, setStatus] = useState<ProcurementStatus>('archived'); // Changed default to 'archived'
     const [date, setDate] = useState<Date | undefined>(new Date());
-
-    // useEffect(() => {
-    //     // Subscribe to real-time updates
-    //     // const unsubCabinets = onCabinetsChange(setCabinets);
-    //     // const unsubShelves = onShelvesChange(setShelves);
-    //     // const unsubFolders = onFoldersChange(setFolders);
-    //     // const unsubProcurements = onProcurementsChange(setProcurements);
-
-    //     // return () => {
-    //     //     unsubCabinets();
-    //     //     unsubShelves();
-    //     //     unsubFolders();
-    //     //     unsubProcurements();
-    //     // };
-    // }, []);
 
     // Update available shelves when cabinet changes
     useEffect(() => {
@@ -102,13 +83,10 @@ const AddProcurement: React.FC = () => {
                 shelfId,
                 folderId,
                 status,
-                urgencyLevel: 'medium', // Default value
+                urgencyLevel: 'medium',
                 dateAdded: date ? date.toISOString() : new Date().toISOString(),
-                tags: [], // Empty array
+                tags: [],
             };
-
-            // Only add notes if it has a value
-            // Don't include it at all if undefined to avoid Firestore errors
 
             const newProcurement = await addProcurement(
                 procurementData,
@@ -139,24 +117,27 @@ const AddProcurement: React.FC = () => {
         }
     };
 
-
-    // Format PR Number: AAA-AAA-AA-AAA
+    // Format PR Number: DIV-MMM-YY-NNN (e.g., DIV-JAN-26-001)
     const handlePRNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        let value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); // Remove illegal chars (keep hyphens allowed for backspace handling ease)
+        let value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
 
         // Remove existing hyphens for raw processing
         const rawValue = value.replace(/-/g, '');
         let formattedValue = '';
 
+        // DIV (3 chars)
         if (rawValue.length > 0) {
             formattedValue = rawValue.substring(0, 3);
         }
+        // MMM (3 chars for month)
         if (rawValue.length > 3) {
             formattedValue += '-' + rawValue.substring(3, 6);
         }
+        // YY (2 chars for year)
         if (rawValue.length > 6) {
             formattedValue += '-' + rawValue.substring(6, 8);
         }
+        // NNN (3 chars for number)
         if (rawValue.length > 8) {
             formattedValue += '-' + rawValue.substring(8, 11);
         }
@@ -191,7 +172,7 @@ const AddProcurement: React.FC = () => {
 
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label className="text-slate-300">PR Number(Divison-Month-Year-Number) *</Label>
+                                        <Label className="text-slate-300">PR Number (Division-Month-Year-Number) *</Label>
                                         <Input
                                             placeholder="e.g., DIV-JAN-26-001"
                                             value={prNumber}
@@ -245,7 +226,7 @@ const AddProcurement: React.FC = () => {
                             <CardContent className="p-6 space-y-6">
                                 <div>
                                     <h3 className="text-lg font-semibold text-white mb-1">Physical Location</h3>
-                                    <p className="text-sm text-slate-400">Cabinet#-Shelf#-Folder#</p>
+                                    <p className="text-sm text-slate-400">Shelf → Cabinet → Folder</p>
                                 </div>
 
                                 <div className="grid gap-4 md:grid-cols-3">
