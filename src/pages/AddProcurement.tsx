@@ -13,8 +13,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { addProcurement, onCabinetsChange, onShelvesChange, onFoldersChange } from '@/lib/storage';
-import { Cabinet, Shelf, Folder, ProcurementStatus } from '@/types/procurement';
+import { addProcurement } from '@/lib/storage';
+import { useData } from '@/contexts/DataContext';
+import { Cabinet, Shelf, Folder, ProcurementStatus, Procurement } from '@/types/procurement';
 import { toast } from 'sonner';
 import { Loader2, Save, CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -29,14 +30,11 @@ const AddProcurement: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
-    
-    // NOTE: These variable names are confusing due to database design
-    // cabinets array actually contains SHELVES (Tier 1)
-    // shelves array actually contains CABINETS (Tier 2)
-    // folders array contains FOLDERS (Tier 3)
-    const [cabinets, setCabinets] = useState<Cabinet[]>([]);
-    const [shelves, setShelves] = useState<Shelf[]>([]);
-    const [folders, setFolders] = useState<Folder[]>([]);
+    // const [cabinets, setCabinets] = useState<Cabinet[]>([]);
+    // const [shelves, setShelves] = useState<Shelf[]>([]);
+    // const [folders, setFolders] = useState<Folder[]>([]);
+    // const [procurements, setProcurements] = useState<Procurement[]>([]);
+    const { cabinets, shelves, folders, procurements } = useData();
 
     // Filtered location options based on selection
     const [availableShelves, setAvailableShelves] = useState<Shelf[]>([]);
@@ -51,25 +49,24 @@ const AddProcurement: React.FC = () => {
     const [status, setStatus] = useState<ProcurementStatus>('active');
     const [date, setDate] = useState<Date | undefined>(new Date());
 
-    useEffect(() => {
-        // Subscribe to real-time updates
-        const unsubCabinets = onCabinetsChange(setCabinets);
-        const unsubShelves = onShelvesChange(setShelves);
-        const unsubFolders = onFoldersChange(setFolders);
+    // useEffect(() => {
+    //     // Subscribe to real-time updates
+    //     // const unsubCabinets = onCabinetsChange(setCabinets);
+    //     // const unsubShelves = onShelvesChange(setShelves);
+    //     // const unsubFolders = onFoldersChange(setFolders);
+    //     // const unsubProcurements = onProcurementsChange(setProcurements);
 
-        return () => {
-            unsubCabinets();
-            unsubShelves();
-            unsubFolders();
-        };
-    }, []);
+    //     // return () => {
+    //     //     unsubCabinets();
+    //     //     unsubShelves();
+    //     //     unsubFolders();
+    //     //     unsubProcurements();
+    //     // };
+    // }, []);
 
-    // Update available shelves (cabinets) when cabinet (shelf) changes
+    // Update available shelves when cabinet changes
     useEffect(() => {
         if (cabinetId) {
-            // cabinetId is actually the selected SHELF
-            // shelves array contains CABINETS
-            // Filter cabinets that belong to this shelf
             setAvailableShelves(shelves.filter(s => s.cabinetId === cabinetId));
             setShelfId('');
             setFolderId('');
@@ -78,11 +75,9 @@ const AddProcurement: React.FC = () => {
         }
     }, [cabinetId, shelves]);
 
-    // Update available folders when shelf (cabinet) changes
+    // Update available folders when shelf changes
     useEffect(() => {
         if (shelfId) {
-            // shelfId is actually the selected CABINET
-            // Filter folders that belong to this cabinet
             setAvailableFolders(folders.filter(f => f.shelfId === shelfId));
             setFolderId('');
         } else {
@@ -103,20 +98,37 @@ const AddProcurement: React.FC = () => {
             const procurementData: any = {
                 prNumber,
                 description,
-                cabinetId,  // This stores the selected SHELF's ID
-                shelfId,    // This stores the selected CABINET's ID
-                folderId,   // This stores the selected FOLDER's ID
+                cabinetId,
+                shelfId,
+                folderId,
                 status,
-                urgencyLevel: 'medium',
+                urgencyLevel: 'medium', // Default value
                 dateAdded: date ? date.toISOString() : new Date().toISOString(),
-                tags: [],
+                tags: [], // Empty array
             };
 
-            await addProcurement(
+            // Only add notes if it has a value
+            // Don't include it at all if undefined to avoid Firestore errors
+
+            const newProcurement = await addProcurement(
                 procurementData,
                 user?.email || 'unknown@example.com',
                 user?.name || 'Unknown User'
             );
+
+            // If the file is archived, calculate and assign stack number
+            if (status === 'archived') {
+                // Get all archived files in the same folder
+                const filesInFolder = procurements
+                    .filter(p => p.folderId === folderId && p.status === 'archived')
+                    .sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
+
+                // The new file should be the last one
+                const stackNumber = filesInFolder.length + 1;
+
+                // Update the newly created file with its stack number
+                await updateProcurement(newProcurement.id, { stackNumber });
+            }
 
             toast.success('File record added successfully');
             navigate('/dashboard');
@@ -127,10 +139,34 @@ const AddProcurement: React.FC = () => {
         }
     };
 
-    // Free-form PR Number input - only uppercase conversion
+
+    // Format PR Number: AAA-AAA-AA-AAA
     const handlePRNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value.toUpperCase();
-        setPrNumber(value);
+        let value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); // Remove illegal chars (keep hyphens allowed for backspace handling ease)
+
+        // Remove existing hyphens for raw processing
+        const rawValue = value.replace(/-/g, '');
+        let formattedValue = '';
+
+        if (rawValue.length > 0) {
+            formattedValue = rawValue.substring(0, 3);
+        }
+        if (rawValue.length > 3) {
+            formattedValue += '-' + rawValue.substring(3, 6);
+        }
+        if (rawValue.length > 6) {
+            formattedValue += '-' + rawValue.substring(6, 8);
+        }
+        if (rawValue.length > 8) {
+            formattedValue += '-' + rawValue.substring(8, 11);
+        }
+
+        // Limit length (14 chars: 3+1+3+1+2+1+3)
+        if (formattedValue.length > 14) {
+            formattedValue = formattedValue.substring(0, 14);
+        }
+
+        setPrNumber(formattedValue);
     };
 
     return (
@@ -155,11 +191,12 @@ const AddProcurement: React.FC = () => {
 
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label className="text-slate-300">PR Number (Division-Month-Year-Number) *</Label>
+                                        <Label className="text-slate-300">PR Number(Divison-Month-Year-Number) *</Label>
                                         <Input
                                             placeholder="e.g., DIV-JAN-26-001"
                                             value={prNumber}
                                             onChange={handlePRNumberChange}
+                                            maxLength={14}
                                             className="bg-[#1e293b] border-slate-700 text-white placeholder:text-slate-500 uppercase"
                                             required
                                         />
@@ -208,11 +245,10 @@ const AddProcurement: React.FC = () => {
                             <CardContent className="p-6 space-y-6">
                                 <div>
                                     <h3 className="text-lg font-semibold text-white mb-1">Physical Location</h3>
-                                    <p className="text-sm text-slate-400">Shelf → Cabinet → Folder</p>
+                                    <p className="text-sm text-slate-400">Cabinet#-Shelf#-Folder#</p>
                                 </div>
 
                                 <div className="grid gap-4 md:grid-cols-3">
-                                    {/* SHELF DROPDOWN (stores in cabinetId) */}
                                     <div className="space-y-2">
                                         <Label className="text-slate-300">Shelf *</Label>
                                         <Select value={cabinetId} onValueChange={setCabinetId}>
@@ -229,7 +265,6 @@ const AddProcurement: React.FC = () => {
                                         </Select>
                                     </div>
 
-                                    {/* CABINET DROPDOWN (stores in shelfId) */}
                                     <div className="space-y-2">
                                         <Label className="text-slate-300">Cabinet *</Label>
                                         <Select value={shelfId} onValueChange={setShelfId} disabled={!cabinetId}>
@@ -246,7 +281,6 @@ const AddProcurement: React.FC = () => {
                                         </Select>
                                     </div>
 
-                                    {/* FOLDER DROPDOWN (stores in folderId) */}
                                     <div className="space-y-2">
                                         <Label className="text-slate-300">Folder *</Label>
                                         <Select value={folderId} onValueChange={setFolderId} disabled={!shelfId}>
